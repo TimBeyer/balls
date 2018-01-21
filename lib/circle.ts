@@ -1,14 +1,13 @@
-interface Vector2D {
-  x: number,
-  y: number
-}
+import Vector2D from './vector2d'
 
 export default class Circle {
-  constructor(private position: Vector2D, private radius: number) { }
+  constructor(public position: Vector2D, public velocity: Vector2D, public radius: number) { }
 
   toString(): string {
-    const { x, y } = this.position
-    return `(${x}, ${y}) R: ${this.radius}`
+    const [x, y] = this.position
+    const [vx, vy] = this.velocity
+
+    return `P: (${x}, ${y}) R: ${this.radius}, V: (${x}, ${y})`
   }
 
 }
