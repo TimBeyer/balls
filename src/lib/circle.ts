@@ -10,6 +10,14 @@ export default class Circle {
     public id: string = uuid.v4()
   ) {}
 
+  get x () {
+    return this.position[0]
+  }
+
+  get y () {
+    return this.position[1]
+  }
+
   toString(): string {
     const [x, y] = this.position
     const [vx, vy] = this.velocity

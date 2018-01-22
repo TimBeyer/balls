@@ -80,9 +80,9 @@ const ballCollisionTime = function (circleA: Circle, circleB: Circle): number {
   return results.sort()[0]
 }
 
-// Measurements in meters
-const TABLE_WIDTH = 2.84
-const TABLE_HEIGHT = 1.42
+// Measurements in millimeters
+const TABLE_WIDTH = 2840
+const TABLE_HEIGHT = 1420
 
 const cushionCollision = function (circle: Circle): CushionCollision {
   const collisions: CushionCollision[] = [
@@ -127,10 +127,9 @@ const getCollisions = function (_circles: Circle[]): Collision[] {
   return collisions.sort((a, b) => a.time - b.time)
 }
 
-// 1 px = 2 mm
-const meterToPixel = 100 * 5
-const CANVAS_WIDTH = TABLE_WIDTH * meterToPixel
-const CANVAS_HEIGHT = TABLE_HEIGHT * meterToPixel
+const millimeterToPixel = 1/2
+const CANVAS_WIDTH = TABLE_WIDTH * millimeterToPixel
+const CANVAS_HEIGHT = TABLE_HEIGHT * millimeterToPixel
 
 interface CircleSnapshot {
   id: string
@@ -245,12 +244,12 @@ const simulate = function (time: number, circles: Circle[]) {
 }
 
 const randomCircle = function () {
-  const radius = 0.0375
+  const radius = 37.5
 
   const x = (Math.random() * (TABLE_WIDTH - radius)) + radius;
   const y = (Math.random() * (TABLE_HEIGHT - radius)) + radius;
 
-  const velocity: [number, number] = [Math.random() * 0.25, Math.random() * 0.25]
+  const velocity: [number, number] = [Math.random() * 0.2, Math.random() * 0.2]
 
   return new Circle([x, y], velocity, radius, 0)
 
@@ -258,9 +257,28 @@ const randomCircle = function () {
 
 const circles = [];
 
-for (let i = 0; i < 10; i++) {
-  circles.push(randomCircle())
+const circlesCollide = function (c1: Circle, c2: Circle) : boolean {
+  const distance = Math.sqrt(Math.pow(c1.x - c2.x, 2) + Math.pow(c1.y - c2.y, 2))
+  console.log(distance, )
+  return distance <= (c1.radius + c2.radius)
 }
+
+while(circles.length <= 50) {
+  let currentCircle = randomCircle()
+  let circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
+
+  while(circleCollides) {
+    currentCircle = randomCircle()
+    circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
+  }
+
+  circles.push(currentCircle)
+}
+
+// for (let i = 0; i < 50; i++) {
+//   // just random generate a couple of non-overlapping circles instead of doing some fancy maths
+//   circles.push(randomCircle())
+// }
 // const circles = [
 //   randomCircle(),
 //   randomCircle(),
@@ -274,7 +292,7 @@ for (let i = 0; i < 10; i++) {
 //   randomCircle()
 // ]
 console.time('simulate')
-const simulatedResults = simulate(120, circles);
+const simulatedResults = simulate(120000, circles);
 console.timeEnd('simulate')
 const initialValues = simulatedResults.shift()
 // console.log(JSON.stringify(simulatedResults, null, 2))
@@ -306,19 +324,14 @@ function step(timestamp) {
   }
 
   if (!start) start = timestamp;
-  let progress = (timestamp - start) / 1000;
-  console.log(progress)
+  let progress = (timestamp - start) ;
   
   while (nextEvent && (progress >= nextEvent.absoluteTime)) {
-    console.log('Processing event at', nextEvent)
+    // console.log('Processing event at', nextEvent)
     // let timeToEvent = nextEvent.absoluteTime - previousProgress
     
     for (const snapshot of nextEvent.snapshots) {
       const circle = state[snapshot.id]
-      if (Math.abs(circle.x - snapshot.position[0]) > 0.001) {
-        console.log('Teleport')
-        debugger;
-      }
       Object.assign(circle, snapshot)
     }
 
@@ -327,7 +340,7 @@ function step(timestamp) {
       console.log('Simulation ended')
       return
     }
-    console.log('Next up', nextEvent)
+    // console.log('Next up', nextEvent)
   }
 
   ctx.fillStyle = "#888888";
@@ -338,29 +351,52 @@ function step(timestamp) {
   for (const circleId of circleIds) {
     const circle = state[circleId]
     const position = circle.positionAtTime(progress)
-
+    
     ctx.beginPath()
     if (nextCircleIds.includes(circleId)) {
       ctx.fillStyle = '#ff0000'
     } else {
       ctx.fillStyle = '#000000'
     }
-    ctx.arc(position[0] * meterToPixel, CANVAS_HEIGHT - position[1] * meterToPixel, circle.radius * meterToPixel, 0, Math.PI * 2)
+    ctx.arc(position[0] * millimeterToPixel, CANVAS_HEIGHT - position[1] * millimeterToPixel, circle.radius * millimeterToPixel, 0, Math.PI * 2)
     ctx.closePath()
     ctx.stroke()
     ctx.fill()
-    ctx.fillText(circle.id, position[0] * meterToPixel, CANVAS_HEIGHT - position[1] * meterToPixel)
-
+    ctx.fillText(circle.id, position[0] * millimeterToPixel, CANVAS_HEIGHT - position[1] * millimeterToPixel)
+    
     if (nextCircleIds.includes(circleId)) {
+      ctx.strokeStyle = '#000000'
+
+      const extrapolatedCollisionPosition = circle.positionAtTime(nextEvent.absoluteTime)
+      const snapshotCollisionPosition = nextEvent.snapshots.find((snapshot) => snapshot.id === circleId).position
+      
+      // Draw collision circle
       ctx.beginPath()
-      const collisionPosition = circle.positionAtTime(nextEvent.absoluteTime)
-      ctx.arc(collisionPosition[0] * meterToPixel, CANVAS_HEIGHT - collisionPosition[1] * meterToPixel, circle.radius * meterToPixel, 0, Math.PI * 2)
+      ctx.arc(extrapolatedCollisionPosition[0] * millimeterToPixel, CANVAS_HEIGHT - extrapolatedCollisionPosition[1] * millimeterToPixel, circle.radius * millimeterToPixel, 0, Math.PI * 2)
       ctx.closePath()
       ctx.stroke()
 
+      // Draw line to collision position
       ctx.beginPath()
-      ctx.moveTo(position[0] * meterToPixel, CANVAS_HEIGHT - position[1] * meterToPixel)
-      ctx.lineTo(collisionPosition[0] * meterToPixel, CANVAS_HEIGHT - collisionPosition[1] * meterToPixel)
+      ctx.moveTo(position[0] * millimeterToPixel, CANVAS_HEIGHT - position[1] * millimeterToPixel)
+      ctx.lineTo(extrapolatedCollisionPosition[0] * millimeterToPixel, CANVAS_HEIGHT - extrapolatedCollisionPosition[1] * millimeterToPixel)
+      ctx.closePath()
+      ctx.stroke()
+
+      // Draw line to snapshotted position 
+
+      // Draw collision circle
+      ctx.beginPath()
+      ctx.strokeStyle = '#0000ff'
+      ctx.arc(snapshotCollisionPosition[0] * millimeterToPixel, CANVAS_HEIGHT - snapshotCollisionPosition[1] * millimeterToPixel, circle.radius * millimeterToPixel, 0, Math.PI * 2)
+      ctx.closePath()
+      ctx.stroke()
+
+      // Draw line to collision position
+      ctx.beginPath()
+      ctx.strokeStyle = '#0000ff'
+      ctx.moveTo(position[0] * millimeterToPixel, CANVAS_HEIGHT - position[1] * millimeterToPixel)
+      ctx.lineTo(snapshotCollisionPosition[0] * millimeterToPixel, CANVAS_HEIGHT - snapshotCollisionPosition[1] * millimeterToPixel)
       ctx.closePath()
       ctx.stroke()
     } 
