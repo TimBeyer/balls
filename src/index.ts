@@ -95,7 +95,6 @@ const cushionCollision = function (circle: Circle): CushionCollision {
   const positiveCollisions = collisions.filter((collision) => collision.time > Number.EPSILON && collision.time !== Infinity)
   const absoluteCollisions = positiveCollisions.map((collision) => Object.assign({}, collision, { time: collision.time + circle.time }))
   const sortedCollisions = absoluteCollisions.sort((a, b) => a.time - b.time)
-  console.log(sortedCollisions)
 
   return sortedCollisions[0]
 }
@@ -189,7 +188,6 @@ const simulate = function (time: number, circles: Circle[]) {
 
     for (const circle of collision.circles) {
       circle.advanceTime(collision.time)
-      console.log(circle)
     }
 
     if (collision.type === 'Cushion') {
@@ -246,16 +244,40 @@ const simulate = function (time: number, circles: Circle[]) {
   return replay
 }
 
-const circles = [
-  new Circle([0.5, 0.5], [-0.2, 0], 0.0375, 0),
-  new Circle([1.5, 0.5], [0.2, 0], 0.0375, 0),
-  new Circle([2.5, 0.5], [0.2, 0], 0.0375, 0),
-  new Circle([0.7, 0.5], [0.2, 0], 0.0375, 0),
-  new Circle([1.3, 0.5], [0.2, 0], 0.0375, 0),
-]
-const simulatedResults = simulate(40, circles);
+const randomCircle = function () {
+  const radius = 0.0375
+
+  const x = (Math.random() * (TABLE_WIDTH - radius)) + radius;
+  const y = (Math.random() * (TABLE_HEIGHT - radius)) + radius;
+
+  const velocity: [number, number] = [Math.random() * 0.25, Math.random() * 0.25]
+
+  return new Circle([x, y], velocity, radius, 0)
+
+}
+
+const circles = [];
+
+for (let i = 0; i < 10; i++) {
+  circles.push(randomCircle())
+}
+// const circles = [
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle(),
+//   randomCircle()
+// ]
+console.time('simulate')
+const simulatedResults = simulate(120, circles);
+console.timeEnd('simulate')
 const initialValues = simulatedResults.shift()
-console.log(JSON.stringify(simulatedResults, null, 2))
+// console.log(JSON.stringify(simulatedResults, null, 2))
 
 const canvas = document.createElement('canvas')
 canvas.width = CANVAS_WIDTH
@@ -277,15 +299,15 @@ let start
 let nextEvent = simulatedResults.shift()
 
 function step(timestamp) {
+
   if (!nextEvent) {
     console.log('Simulation ended')
     return
   }
-  ctx.fillStyle = "#888888";
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
   if (!start) start = timestamp;
   let progress = (timestamp - start) / 1000;
+  console.log(progress)
   
   while (nextEvent && (progress >= nextEvent.absoluteTime)) {
     console.log('Processing event at', nextEvent)
@@ -293,28 +315,59 @@ function step(timestamp) {
     
     for (const snapshot of nextEvent.snapshots) {
       const circle = state[snapshot.id]
-      console.log(progress, nextEvent.absoluteTime)
-      // circle.advanceTime(nextEvent.absoluteTime)
+      if (Math.abs(circle.x - snapshot.position[0]) > 0.001) {
+        console.log('Teleport')
+        debugger;
+      }
       Object.assign(circle, snapshot)
-      console.log(circle)
     }
 
     nextEvent = simulatedResults.shift()
+    if (!nextEvent) {
+      console.log('Simulation ended')
+      return
+    }
     console.log('Next up', nextEvent)
   }
+
+  ctx.fillStyle = "#888888";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+
+  const nextCircleIds = nextEvent.snapshots.map((snapshot) => snapshot.id)
 
   for (const circleId of circleIds) {
     const circle = state[circleId]
     const position = circle.positionAtTime(progress)
+
     ctx.beginPath()
+    if (nextCircleIds.includes(circleId)) {
+      ctx.fillStyle = '#ff0000'
+    } else {
+      ctx.fillStyle = '#000000'
+    }
     ctx.arc(position[0] * meterToPixel, CANVAS_HEIGHT - position[1] * meterToPixel, circle.radius * meterToPixel, 0, Math.PI * 2)
-    ctx.closePath();
-    ctx.stroke();
+    ctx.closePath()
+    ctx.stroke()
+    ctx.fill()
+    ctx.fillText(circle.id, position[0] * meterToPixel, CANVAS_HEIGHT - position[1] * meterToPixel)
+
+    if (nextCircleIds.includes(circleId)) {
+      ctx.beginPath()
+      const collisionPosition = circle.positionAtTime(nextEvent.absoluteTime)
+      ctx.arc(collisionPosition[0] * meterToPixel, CANVAS_HEIGHT - collisionPosition[1] * meterToPixel, circle.radius * meterToPixel, 0, Math.PI * 2)
+      ctx.closePath()
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.moveTo(position[0] * meterToPixel, CANVAS_HEIGHT - position[1] * meterToPixel)
+      ctx.lineTo(collisionPosition[0] * meterToPixel, CANVAS_HEIGHT - collisionPosition[1] * meterToPixel)
+      ctx.closePath()
+      ctx.stroke()
+    } 
   }
   
-  if (progress < 100) {
-    window.requestAnimationFrame(step);
-  }
+  window.requestAnimationFrame(step);
+  
 }
 
 window.requestAnimationFrame(step);
