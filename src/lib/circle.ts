@@ -26,9 +26,11 @@ export default class Circle {
   }
 
   positionAtTime(time: number) : Vector2D {
+    const relativeTime = time - this.time
+
     return [
-      this.position[0] + (this.velocity[0] * (time - this.time)),
-      this.position[1] + (this.velocity[1] * (time - this.time)),
+      this.position[0] + (this.velocity[0] * relativeTime),
+      this.position[1] + (this.velocity[1] * relativeTime),
     ]
   }
 
