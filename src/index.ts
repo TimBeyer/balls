@@ -21,7 +21,7 @@ const randomCircle = function () {
   const x = (Math.random() * (TABLE_WIDTH - 2 * radius)) + radius;
   const y = (Math.random() * (TABLE_HEIGHT - 2 * radius)) + radius;
 
-  const velocity: [number, number] = [Math.random() * 0.2, Math.random() * 0.2]
+  const velocity: [number, number] = [Math.random() * 0.5, Math.random() * 0.5]
 
   return new Circle([x, y], velocity, radius, 0)
 
@@ -103,6 +103,11 @@ function step(timestamp) {
     for (const snapshot of nextEvent.snapshots) {
       const circle = state[snapshot.id]
       Object.assign(circle, snapshot)
+    }
+
+    for (const circleId of circleIds) {
+      const circle = state[circleId]
+      circle.advanceTime(nextEvent.absoluteTime)
     }
 
     nextEvent = simulatedResults.shift()

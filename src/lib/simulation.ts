@@ -48,14 +48,16 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
     })
   })
 
-  // for (let i = 0; i < 10; i++) {
-  // 
   while (currentTime < time) {
     const collisions = getCollisions(tableWidth, tableHeight, circles)
 
     const collision = collisions[0]
 
-    for (const circle of collision.circles) {
+    // Don't use relative time.
+    // Always recompute all absolute time positions per collision
+    // This costs a tiny bit more computational power and introduces more floating point rounding errors
+    // but makes the collision detection more reliable
+    for (const circle of circles) {
       circle.advanceTime(collision.time)
     }
 

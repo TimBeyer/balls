@@ -17,7 +17,7 @@ export default class CollisionPreviewRenderer extends Renderer {
 
     for (var i = 0; i < this.numCollisions; i++) {
       const nextEvent = remainingEvents[i]
-      if (remainingEvents) {
+      if (nextEvent) {
         const nextCircleIds = nextEvent.snapshots.map((snapshot) => snapshot.id)
   
         if (nextCircleIds.includes(circle.id)) {
