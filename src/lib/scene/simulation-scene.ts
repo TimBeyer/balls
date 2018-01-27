@@ -54,7 +54,7 @@ export default class SimulationScene {
 
   constructor (canvas: HTMLCanvasElement, circles: Circle[]) {
     this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
+    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 10000);
     this.canvas2D = canvas
 
     for (const circle of circles) {
@@ -66,7 +66,7 @@ export default class SimulationScene {
   }
 
   initialize () {
-    this.scene.background = new THREE.Color(0xcccccc);
+    // this.scene.background = new THREE.Color(0xcccccc);
     // this.scene.fog = new THREE.FogExp2(0xcccccc, 0.002);
 
     this.canvasTexture = new THREE.Texture(this.canvas2D);
