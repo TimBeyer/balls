@@ -92,7 +92,7 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
     return time + circleB.time
   })
 
-  return results.sort()[0]
+  return results.sort((a, b) => a - b)[0]
 }
 
 export function getCollisions (tableWidth: number, tableHeight: number, _circles: Circle[]): Collision[] {
