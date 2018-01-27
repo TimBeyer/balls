@@ -7,6 +7,7 @@ export default class Circle {
     public velocity: Vector2D,
     public radius: number,
     public time: number,
+    public mass: number = 100,
     public id: string = uuid.v4()
   ) {}
 

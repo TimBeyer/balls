@@ -20,6 +20,6 @@ export default abstract class Renderer {
   abstract render(circle: Circle, progress: number, nextEvent: ReplayData, remainingEvents: ReplayData[])
 
   protected toScreenCoords (coord: number[]): number[] {
-    return [coord[0] * this.millimeterToPixel, this.height - coord[1] * this.millimeterToPixel]
+    return [coord[0] * this.millimeterToPixel, coord[1] * this.millimeterToPixel]
   }
 }

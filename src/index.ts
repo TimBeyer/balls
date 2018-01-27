@@ -7,6 +7,10 @@ import CircleRenderer from './lib/renderers/circle-renderer';
 import CollisionRenderer from './lib/renderers/collision-renderer';
 import CollisionPreviewRenderer from './lib/renderers/collision-preview-renderer';
 
+import * as THREE from 'three';
+import SimulationScene from './lib/scene/simulation-scene';
+import * as Stats from 'stats.js'
+
 // Measurements in millimeters
 const TABLE_WIDTH = 2840
 const TABLE_HEIGHT = 1420
@@ -22,7 +26,6 @@ const randomCircle = function () {
   const y = (Math.random() * (TABLE_HEIGHT - 2 * radius)) + radius;
 
   const velocity: [number, number] = [Math.random() * 0.5, Math.random() * 0.5]
-
   return new Circle([x, y], velocity, radius, 0)
 
 }
@@ -35,7 +38,7 @@ const circlesCollide = function (c1: Circle, c2: Circle) : boolean {
 }
 
 // just brute force random generate a couple of non-overlapping circles instead of doing some fancy maths
-while(circles.length <= 10) {
+while(circles.length <= 30) {
   let currentCircle = randomCircle()
   let circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
   let attemptCount = 1
@@ -63,21 +66,33 @@ const canvas = document.createElement('canvas')
 canvas.width = CANVAS_WIDTH
 canvas.height = CANVAS_HEIGHT
 
-document.body.appendChild(canvas)
+// document.body.appendChild(canvas)
 
 const ctx = canvas.getContext('2d')
 
 
 let state: { [key: string]: Circle } = initialValues.snapshots.reduce((circles, snapshot) => {
-  circles[snapshot.id] = new Circle(snapshot.position, snapshot.velocity, snapshot.radius, snapshot.time, snapshot.id)
+  circles[snapshot.id] = new Circle(snapshot.position, snapshot.velocity, snapshot.radius, snapshot.time, 100, snapshot.id)
   return circles
 }, {})
 
 const circleIds = Object.keys(state)
+const replayCircles = Object.values(state)
+
+var renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.gammaInput = true;
+renderer.gammaOutput = true;
+
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new SimulationScene(canvas, replayCircles);
 
 const renderers: Renderer[] = [
   new CircleRenderer(canvas),
-  new TailRenderer(canvas, 500),
+  new TailRenderer(canvas, 200),
   new CollisionRenderer(canvas),
   new CollisionPreviewRenderer(canvas, 4)
 ]
@@ -85,7 +100,12 @@ const renderers: Renderer[] = [
 let start
 let nextEvent = simulatedResults.shift()
 
+var stats = new Stats();
+stats.showPanel(1); // 0: fps, 1: ms, 2: mb, 3+: custom
+document.body.appendChild(stats.dom);
+
 function step(timestamp) {
+  stats.begin();
 
   if (!nextEvent) {
     console.log('Simulation ended')
@@ -94,7 +114,7 @@ function step(timestamp) {
 
   if (!start) start = timestamp;
 
-  let progress = (timestamp - start) ;
+  let progress = (timestamp - start);
 
   while (nextEvent && (progress >= nextEvent.absoluteTime)) {
     // console.log('Processing event at', nextEvent)
@@ -121,14 +141,18 @@ function step(timestamp) {
   ctx.fillStyle = "#888888";
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
-  for (const circleId of circleIds) {
-    const circle = state[circleId]
-    for (const renderer of renderers) {
+  scene.renderAtTime(progress)
+  for (const renderer of renderers) {
+    for (const circleId of circleIds) {
+      const circle = state[circleId]
       renderer.render(circle, progress, nextEvent, simulatedResults)
     }
   }
-  window.requestAnimationFrame(step);
   
+  renderer.render(scene.scene, scene.camera);
+  stats.end();
+  window.requestAnimationFrame(step);
+
 }
 
 window.requestAnimationFrame(step);
