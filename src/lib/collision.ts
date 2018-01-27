@@ -39,8 +39,8 @@ export function getCushionCollisionTime(tableWidth: number, tableHeight: number,
 
 
 export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number {
-  const velocityA = circleA.velocity
-  const velocityB = circleB.velocity
+  const v1 = circleA.velocity
+  const v2 = circleB.velocity
 
   // since both circles could be in different relative times,
   // we need to move initial position into the same frame of reference
@@ -59,13 +59,14 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   */
 
   // first calculate relative velocity 
-  const v = [velocityA[0] - velocityB[0], velocityA[1] - velocityB[1]]
+  const v = [v1[0] - v2[0], v1[1] - v2[1]]
   // then relative position
   const pos = [posA[0] - posB[0], posA[1] - posB[1]]
 
   // if the circles are already colliding, do not detect it
   const distance = Math.sqrt(Math.pow(pos[0], 2) + Math.pow(pos[1], 2))
   if (distance < (radiusA + radiusB)) {
+    // console.log('Already colliding', (radiusA + radiusB) - distance)
     return undefined
   }
 

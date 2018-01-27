@@ -13,6 +13,7 @@
   "devDependencies": {
     "@types/three": "^0.89.5",
     "@types/uuid": "^3.4.3",
+    "benchmark": "^2.1.4",
     "ts-loader": "^3.3.0",
     "tsc": "^1.20150623.0",
     "typescript": "^2.6.2",
@@ -21,9 +22,11 @@
     "webpack-dev-server": "^2.11.1"
   },
   "dependencies": {
+    "@types/vectorious": "^4.3.3",
     "stats.js": "^0.17.0",
     "three": "^0.89.0",
     "three-trackballcontrols": "0.0.7",
-    "uuid": "^3.2.1"
+    "uuid": "^3.2.1",
+    "vectorious": "^4.8.1"
   }
 }
