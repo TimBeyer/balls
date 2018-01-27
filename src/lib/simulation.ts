@@ -88,9 +88,39 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
 
       }
     } else {
-      const firstVel = collision.circles[0].velocity.slice() as Vector2D
-      collision.circles[0].velocity = collision.circles[1].velocity.slice() as Vector2D
-      collision.circles[1].velocity = firstVel
+      const c1 = collision.circles[0]
+      const c2 = collision.circles[1]
+      const [vx1, vy1] = c1.velocity
+      const [vx2, vy2] = c2.velocity
+
+      const [x1, y1] = c1.position
+      const [x2, y2] = c2.position
+      let [dx, dy] = [x1 - x2, y1 - y2]
+      
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      dx = dx / dist
+      dy = dy / dist
+
+      const v1dot = dx * vx1 + dy * vy1
+      const [vx1Collide, vy1Collide] = [dx * v1dot, dy * v1dot]
+      const [vx1Remainder, vy1Remainder] = [vx1 - vx1Collide, vy1 - vy1Collide]
+
+      const v2dot = dx * vx2 + dy * vy2
+      const [vx2Collide, vy2Collide] = [dx * v2dot, dy * v2dot]
+      const [vx2Remainder, vy2Remainder] = [vx2 - vx2Collide, vy2 - vy2Collide]
+
+      const v1Length = Math.sqrt(vx1Collide * vx1Collide + vy1Collide * vy1Collide) * Math.sign(v1dot)
+      const v2Length = Math.sqrt(vx2Collide * vx2Collide + vy2Collide * vy2Collide) * Math.sign(v2dot)
+
+      const commonVelocity = 2 * (c1.mass * v1Length + c2.mass * v2Length) / (c1.mass + c2.mass)
+      const v1LengthAfterCollision = commonVelocity - v1Length
+      const v2LengthAfterCollision = commonVelocity - v2Length
+
+      const c1Scale = v1LengthAfterCollision / v1Length
+      const c2Scale = v2LengthAfterCollision / v2Length
+      
+      c1.velocity = [vx1Collide * c1Scale + vx1Remainder, vy1Collide * c1Scale + vy1Remainder]
+      c2.velocity = [vx2Collide * c2Scale + vx2Remainder, vy2Collide * c2Scale + vy2Remainder] 
     }
 
     currentTime = collision.time
