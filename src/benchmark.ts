@@ -49,7 +49,7 @@ const simulateRandomCircles = function (numCircles: number) {
     circles.push(currentCircle)
   }
 
-  simulate(TABLE_WIDTH, TABLE_HEIGHT, 120000, circles);
+  simulate(TABLE_WIDTH, TABLE_HEIGHT, 60000, circles);
 }
 
 var suite = new Benchmark.Suite;
@@ -60,6 +60,9 @@ suite.add('10 Circles', function () {
 })
 .add('20 Circles', function () {
   simulateRandomCircles(20)
+})
+.add('40 Circles', function () {
+  simulateRandomCircles(40)
 })
 // add listeners
 .on('cycle', function (event) {

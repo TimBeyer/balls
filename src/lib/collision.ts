@@ -1,4 +1,5 @@
 import Circle from "./circle";
+import { RBTree } from 'bintrees'
 
 export enum Cushion {
   North = "NORTH",
@@ -138,6 +139,138 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   } else {
     if (!isNaN(res2) && res2 > 0) {
       return res2 + circleB.time
+    }
+  }
+}
+
+export class CollisionFinder {
+  private uuidToCollision: Map<string, Collision[]> = new Map()
+  private tree: RBTree<Collision>
+  private tableWidth: number
+  private tableHeight: number
+  private circles: Circle[]
+  private circlesById: Map<string, Circle> = new Map()
+
+  constructor (tableWidth: number, tableHeight: number, circles: Circle[]) {
+    const tree = new RBTree<Collision>(function (a, b) { return a.time - b.time; });
+
+    this.tree = tree;
+    this.tableWidth = tableWidth
+    this.tableHeight = tableHeight
+    this.circles = circles
+
+    this.initialize()
+  }
+
+  initialize () {
+    for (const circle of this.circles) {
+      this.circlesById.set(circle.id, circle)
+    }
+
+    const circles = this.circles.slice()
+    let referenceCircle
+
+    while (circles.length > 0) {
+      referenceCircle = circles.shift()
+      const collisionList = this.uuidToCollision.get(referenceCircle.id) || []
+      const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
+
+      collisionList.push(cushionCollision)
+      this.tree.insert(cushionCollision)
+
+      for (const circle of circles) {
+        const time = getCircleCollisionTime(referenceCircle, circle)
+        if (time) {
+          const collision: Collision = {
+            type: 'Circle',
+            time,
+            circles: [referenceCircle, circle]
+          }
+  
+          collisionList.push(collision)
+          this.tree.insert(collision)
+
+        }
+      }
+
+      this.uuidToCollision.set(referenceCircle.id, collisionList)
+    }
+  }
+
+  pop (): Collision {
+    const next = this.tree.min()
+    this.tree.remove(next)
+
+    for (const circle of next.circles) {
+      const collisions = this.uuidToCollision.get(circle.id)
+      this.uuidToCollision.delete(circle.id)
+
+      for (const collision of collisions) {
+        this.tree.remove(collision)
+      }
+    }
+
+    return next
+  }
+
+  recompute (circleId1: string, circleId2?: string) {
+    const referenceCircle = this.circlesById.get(circleId1)
+    
+    const collisionList = []
+    const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
+
+    collisionList.push(cushionCollision)
+    this.tree.insert(cushionCollision)
+
+    for (const circle of this.circles) {
+      if (circle.id === circleId1) {
+        continue
+      }
+
+      const time = getCircleCollisionTime(referenceCircle, circle)
+      if (time) {
+        const collision: Collision = {
+          type: 'Circle',
+          time,
+          circles: [referenceCircle, circle]
+        }
+  
+        collisionList.push(collision)
+        this.tree.insert(collision)
+      }
+    }
+
+    this.uuidToCollision.set(referenceCircle.id, collisionList)
+
+    if (circleId2) {
+      const referenceCircle = this.circlesById.get(circleId2)
+
+      const collisionList = []
+      const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
+
+      collisionList.push(cushionCollision)
+      this.tree.insert(cushionCollision)
+
+      for (const circle of this.circles) {
+        if (circle.id === circleId1 || circle.id === circleId2) {
+          continue
+        }
+
+        const time = getCircleCollisionTime(referenceCircle, circle)
+        if (time) {
+          const collision: Collision = {
+            type: 'Circle',
+            time,
+            circles: [referenceCircle, circle]
+          }
+
+          collisionList.push(collision)
+          this.tree.insert(collision)
+        }
+      }
+
+      this.uuidToCollision.set(referenceCircle.id, collisionList)
+
     }
   }
 }

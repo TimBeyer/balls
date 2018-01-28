@@ -1,4 +1,4 @@
-import { Cushion, CushionCollision, getCollision } from "./collision";
+import { Cushion, CushionCollision, getCollision, CollisionFinder } from "./collision";
 import Vector2D from './vector2d'
 import Circle from "./circle";
 
@@ -13,7 +13,7 @@ export interface CircleSnapshot {
 export interface ReplayData {
 
   // Absolute timestamp
-  absoluteTime: number
+  time: number
   snapshots: CircleSnapshot[]
   type: EventType,
   cushionType?: Cushion
@@ -35,7 +35,7 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
 
   // initial snapshot
   replay.push({
-    absoluteTime: 0,
+    time: 0,
     type: EventType.StateUpdate,
     snapshots: circles.map((circle) => {
       return {
@@ -48,8 +48,10 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
     })
   })
 
+  const collisionFinder = new CollisionFinder(tableWidth, tableHeight, circles)
+
   while (currentTime < time) {
-    const collision = getCollision(tableWidth, tableHeight, circles)
+    const collision = collisionFinder.pop()
 
 
     // Don't use relative time.
@@ -132,7 +134,7 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
     currentTime = collision.time
 
     const replayData: ReplayData = {
-      absoluteTime: currentTime,
+      time: currentTime,
       type: collision.type === 'Cushion' ? EventType.CushionCollision : EventType.CircleCollision,
       cushionType: (collision as CushionCollision).cushion,
       snapshots: collision.circles.map((circle) => {
@@ -147,6 +149,8 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
     }
 
     replay.push(replayData)
+
+    collisionFinder.recompute(collision.circles[0].id, collision.circles[1] && collision.circles[1].id)
   }
   return replay
 }

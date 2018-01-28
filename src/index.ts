@@ -39,7 +39,7 @@ const circlesCollide = function (c1: Circle, c2: Circle) : boolean {
 }
 
 // just brute force random generate a couple of non-overlapping circles instead of doing some fancy maths
-while(circles.length <= 150) {
+while(circles.length <= 10) {
   let currentCircle = randomCircle()
   let circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
   let attemptCount = 1
@@ -119,7 +119,7 @@ function step(timestamp) {
 
   let progress = (timestamp - start);
 
-  while (nextEvent && (progress >= nextEvent.absoluteTime)) {
+  while (nextEvent && (progress >= nextEvent.time)) {
     // console.log('Processing event at', nextEvent)
     // let timeToEvent = nextEvent.absoluteTime - previousProgress
     
@@ -130,7 +130,7 @@ function step(timestamp) {
 
     for (const circleId of circleIds) {
       const circle = state[circleId]
-      circle.advanceTime(nextEvent.absoluteTime)
+      circle.advanceTime(nextEvent.time)
     }
 
     nextEvent = simulatedResults.shift()
