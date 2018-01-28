@@ -23,18 +23,24 @@ export interface CushionCollision extends Collision {
 }
 
 export function getCushionCollisionTime(tableWidth: number, tableHeight: number, circle: Circle): CushionCollision {
+  const dx = circle.radius - circle.position[0]
+  const dy = circle.radius - circle.position[1]
+
+  const vx = circle.velocity[0]
+  const vy = circle.velocity[1]
+
   const collisions: CushionCollision[] = [
-    { type: 'Cushion', circles: [circle], cushion: Cushion.North, time: (tableHeight - circle.radius - circle.position[1]) / circle.velocity[1] },
-    { type: 'Cushion', circles: [circle], cushion: Cushion.East, time: (tableWidth - circle.radius - circle.position[0]) / circle.velocity[0] },
-    { type: 'Cushion', circles: [circle], cushion: Cushion.South, time: (circle.radius - circle.position[1]) / circle.velocity[1] },
-    { type: 'Cushion', circles: [circle], cushion: Cushion.West, time: (circle.radius - circle.position[0]) / circle.velocity[0] }
+    { type: 'Cushion', circles: [circle], cushion: Cushion.North, time: (tableHeight - circle.radius - circle.position[1]) / vy },
+    { type: 'Cushion', circles: [circle], cushion: Cushion.East, time: (tableWidth - circle.radius - circle.position[0]) / vx },
+    { type: 'Cushion', circles: [circle], cushion: Cushion.South, time: dy / vy },
+    { type: 'Cushion', circles: [circle], cushion: Cushion.West, time: dx / vx }
   ]
 
-  const positiveCollisions = collisions.filter((collision) => collision.time > Number.EPSILON && collision.time !== Infinity)
-  const absoluteCollisions = positiveCollisions.map((collision) => Object.assign({}, collision, { time: collision.time + circle.time }))
-  const sortedCollisions = absoluteCollisions.sort((a, b) => a.time - b.time)
+  const sortedCollisions = collisions.sort((a, b) => a.time - b.time)
+  const positiveCollisions = sortedCollisions.filter((collision) => collision.time > Number.EPSILON && collision.time !== Infinity)
+  const collision = positiveCollisions[0]
 
-  return sortedCollisions[0]
+  return Object.assign({}, collision, { time: collision.time + circle.time })
 }
 
 
@@ -61,10 +67,11 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   // first calculate relative velocity 
   const v = [v1[0] - v2[0], v1[1] - v2[1]]
   // then relative position
-  const pos = [posA[0] - posB[0], posA[1] - posB[1]]
+  const posX = posA[0] - posB[0]
+  const posY = posA[1] - posB[1]
 
   // if the circles are already colliding, do not detect it
-  const distance = Math.sqrt(Math.pow(pos[0], 2) + Math.pow(pos[1], 2))
+  const distance = Math.sqrt(Math.pow(posX, 2) + Math.pow(posY, 2))
   if (distance < (radiusA + radiusB)) {
     // console.log('Already colliding', (radiusA + radiusB) - distance)
     return undefined
@@ -75,25 +82,26 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   // a = (vx^2 + vy^2)
   const a = Math.pow(v[0], 2) + Math.pow(v[1], 2)
   // b = 2 (a*vx + b*vy)
-  const b = 2 * (pos[0] * v[0] + pos[1] * v[1])
+  const b = 2 * (posX * v[0] + posY * v[1])
   // c = a^2 + b^2 - (r1 + r2) ^ 2
-  const c = Math.pow(pos[0], 2) + Math.pow(pos[1], 2) - Math.pow(radiusA + radiusB, 2)
+  const c = Math.pow(posX, 2) + Math.pow(posY, 2) - Math.pow(radiusA + radiusB, 2)
 
   // the part +- sqrt(b^2 - 4ac)
   const sqrtPart = Math.sqrt(Math.pow(b, 2) - 4 * a * c)
   const divisor = 2 * a
 
-  const results = [
-    (-b + sqrtPart) / divisor,
-    (-b - sqrtPart) / divisor
-  ].filter((number) => {
-    return !isNaN(number) && number > 0
-  }).map((time) => {
-    // Relative time back to absolute
-    return time + circleB.time
-  })
+  const res1 = (-b + sqrtPart) / divisor
+  const res2 = (-b - sqrtPart) / divisor
 
-  return results.sort((a, b) => a - b)[0]
+  if (res1 < res2) {
+    if (!isNaN(res1) && res1 > 0) {
+      return res1 + circleB.time
+    }
+  } else {
+    if (!isNaN(res2) && res2 > 0) {
+      return res2 + circleB.time
+    }
+  }
 }
 
 export function getCollisions (tableWidth: number, tableHeight: number, _circles: Circle[]): Collision[] {

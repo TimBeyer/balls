@@ -95,19 +95,26 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
 
       const [x1, y1] = c1.position
       const [x2, y2] = c2.position
-      let [dx, dy] = [x1 - x2, y1 - y2]
+      let dx = x1 - x2,
+          dy = y1 - y2
       
       const dist = Math.sqrt(dx * dx + dy * dy)
       dx = dx / dist
       dy = dy / dist
 
       const v1dot = dx * vx1 + dy * vy1
-      const [vx1Collide, vy1Collide] = [dx * v1dot, dy * v1dot]
-      const [vx1Remainder, vy1Remainder] = [vx1 - vx1Collide, vy1 - vy1Collide]
+      
+      const vx1Collide = dx * v1dot, 
+            vy1Collide = dy * v1dot
+      const vx1Remainder = vx1 - vx1Collide,
+            vy1Remainder = vy1 - vy1Collide
 
       const v2dot = dx * vx2 + dy * vy2
-      const [vx2Collide, vy2Collide] = [dx * v2dot, dy * v2dot]
-      const [vx2Remainder, vy2Remainder] = [vx2 - vx2Collide, vy2 - vy2Collide]
+      const vx2Collide = dx * v2dot,
+            vy2Collide = dy * v2dot
+
+      const vx2Remainder = vx2 - vx2Collide, 
+            vy2Remainder = vy2 - vy2Collide
 
       const v1Length = Math.sqrt(vx1Collide * vx1Collide + vy1Collide * vy1Collide) * Math.sign(v1dot)
       const v2Length = Math.sqrt(vx2Collide * vx2Collide + vy2Collide * vy2Collide) * Math.sign(v2dot)
