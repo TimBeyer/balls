@@ -22,27 +22,56 @@ export interface CushionCollision extends Collision {
   cushion: Cushion
 }
 
+const isOkCollision = function (time: number) {
+  return time > Number.EPSILON && time !== Infinity
+}
+
 export function getCushionCollision(tableWidth: number, tableHeight: number, circle: Circle): CushionCollision {
-  const dx = circle.radius - circle.position[0]
-  const dy = circle.radius - circle.position[1]
+  const circleTime = circle.time
+  const circles = [circle]
+
+  const posX = circle.position[0]
+  const posY = circle.position[1]
+
+  const dx = circle.radius - posX
+  const dy = circle.radius - posY
 
   const vx = circle.velocity[0]
   const vy = circle.velocity[1]
 
-  const collisions: CushionCollision[] = [
-    { type: 'Cushion', circles: [circle], cushion: Cushion.North, time: (tableHeight - circle.radius - circle.position[1]) / vy },
-    { type: 'Cushion', circles: [circle], cushion: Cushion.East, time: (tableWidth - circle.radius - circle.position[0]) / vx },
-    { type: 'Cushion', circles: [circle], cushion: Cushion.South, time: dy / vy },
-    { type: 'Cushion', circles: [circle], cushion: Cushion.West, time: dx / vx }
-  ]
+  const northCollision = (tableHeight - circle.radius - posY) / vy
+  const eastCollision = (tableWidth - circle.radius - posX) / vx
+  const southCollision = dy / vy
+  const westCollision = dx / vx
 
   let earliestEventTime = Number.POSITIVE_INFINITY
-  let earliestEvent = null
+  let earliestEvent = undefined
 
-  for (const collision of collisions) {
-    if (earliestEventTime > collision.time && collision.time > Number.EPSILON && collision.time !== Infinity) {
-      earliestEvent = Object.assign({}, collision, { time: collision.time + circle.time })
-      earliestEventTime = collision.time
+  if (isOkCollision(northCollision)) {
+    if (earliestEventTime > northCollision) {
+      earliestEventTime = northCollision
+      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.North, time: northCollision + circleTime }
+    }
+  }
+
+  if (isOkCollision(eastCollision)) {
+    if (earliestEventTime > eastCollision) {
+      earliestEventTime = eastCollision
+      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.East, time: eastCollision + circleTime }
+    }
+  }
+
+  if (isOkCollision(southCollision)) {
+    if (earliestEventTime > southCollision) {
+      earliestEventTime = southCollision
+      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.South, time: southCollision + circleTime }
+    }
+  }
+
+  if (isOkCollision(westCollision)) {
+    if (earliestEventTime > westCollision) {
+      earliestEventTime = westCollision
+      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.West, time: westCollision + circleTime }
     }
   }
   
