@@ -37,12 +37,12 @@ export function getCushionCollisionTime(tableWidth: number, tableHeight: number,
   ]
 
   const sortedCollisions = collisions.sort((a, b) => a.time - b.time)
-  const positiveCollisions = sortedCollisions.filter((collision) => collision.time > Number.EPSILON && collision.time !== Infinity)
-  const collision = positiveCollisions[0]
-
-  return Object.assign({}, collision, { time: collision.time + circle.time })
+  for (const collision of sortedCollisions) {
+    if (collision.time > Number.EPSILON && collision.time !== Infinity) {
+      return Object.assign({}, collision, { time: collision.time + circle.time })
+    }
+  }
 }
-
 
 export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number {
   const v1 = circleA.velocity
@@ -65,13 +65,15 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   */
 
   // first calculate relative velocity 
-  const v = [v1[0] - v2[0], v1[1] - v2[1]]
+  const vx = v1[0] - v2[0]
+  const vy = v1[1] - v2[1]
   // then relative position
   const posX = posA[0] - posB[0]
   const posY = posA[1] - posB[1]
 
   // if the circles are already colliding, do not detect it
-  const distance = Math.sqrt(Math.pow(posX, 2) + Math.pow(posY, 2))
+  const distanceSquared = posX * posX + posY * posY
+  const distance = Math.sqrt(distanceSquared)
   if (distance < (radiusA + radiusB)) {
     // console.log('Already colliding', (radiusA + radiusB) - distance)
     return undefined
@@ -80,14 +82,16 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   // preparing for `ax^2 + bx + x = 0` solution
 
   // a = (vx^2 + vy^2)
-  const a = Math.pow(v[0], 2) + Math.pow(v[1], 2)
+  const a = vx * vx + vy * vy
+  const r = radiusA + radiusB
+
   // b = 2 (a*vx + b*vy)
-  const b = 2 * (posX * v[0] + posY * v[1])
+  const b = 2 * (posX * vx + posY * vy)
   // c = a^2 + b^2 - (r1 + r2) ^ 2
-  const c = Math.pow(posX, 2) + Math.pow(posY, 2) - Math.pow(radiusA + radiusB, 2)
+  const c = distanceSquared - r * r
 
   // the part +- sqrt(b^2 - 4ac)
-  const sqrtPart = Math.sqrt(Math.pow(b, 2) - 4 * a * c)
+  const sqrtPart = Math.sqrt(b * b - 4 * a * c)
   const divisor = 2 * a
 
   const res1 = (-b + sqrtPart) / divisor
