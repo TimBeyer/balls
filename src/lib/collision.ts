@@ -22,7 +22,7 @@ export interface CushionCollision extends Collision {
   cushion: Cushion
 }
 
-export function getCushionCollisionTime(tableWidth: number, tableHeight: number, circle: Circle): CushionCollision {
+export function getCushionCollision(tableWidth: number, tableHeight: number, circle: Circle): CushionCollision {
   const dx = circle.radius - circle.position[0]
   const dy = circle.radius - circle.position[1]
 
@@ -36,12 +36,17 @@ export function getCushionCollisionTime(tableWidth: number, tableHeight: number,
     { type: 'Cushion', circles: [circle], cushion: Cushion.West, time: dx / vx }
   ]
 
-  const sortedCollisions = collisions.sort((a, b) => a.time - b.time)
-  for (const collision of sortedCollisions) {
-    if (collision.time > Number.EPSILON && collision.time !== Infinity) {
-      return Object.assign({}, collision, { time: collision.time + circle.time })
+  let earliestEventTime = Number.POSITIVE_INFINITY
+  let earliestEvent = null
+
+  for (const collision of collisions) {
+    if (earliestEventTime > collision.time && collision.time > Number.EPSILON && collision.time !== Infinity) {
+      earliestEvent = Object.assign({}, collision, { time: collision.time + circle.time })
+      earliestEventTime = collision.time
     }
   }
+  
+  return earliestEvent
 }
 
 export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number {
@@ -108,30 +113,35 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   }
 }
 
-export function getCollisions (tableWidth: number, tableHeight: number, _circles: Circle[]): Collision[] {
+export function getCollision (tableWidth: number, tableHeight: number, _circles: Circle[]): Collision {
   // Make shallow copy
   const circles = _circles.slice()
   const collisions: Collision[] = []
   let referenceCircle
+  let earliestEventTime = Number.POSITIVE_INFINITY
+  let earliestEvent: Collision = null
 
   while (circles.length > 0) {
     referenceCircle = circles.shift()
-    collisions.push(getCushionCollisionTime(tableWidth, tableHeight, referenceCircle))
+
+   const cushionCollision = getCushionCollision(tableWidth, tableHeight, referenceCircle)
+   if (cushionCollision && cushionCollision.time < earliestEventTime) {
+     earliestEventTime = cushionCollision.time
+     earliestEvent = cushionCollision
+   }
 
     for (const circle of circles) {
       const time = getCircleCollisionTime(referenceCircle, circle)
-
-      if (time) {
-        const circleCollision: CircleCollision = {
+      if (time && time < earliestEventTime) {
+        earliestEventTime = time
+        earliestEvent = {
           type: 'Circle',
           time,
           circles: [referenceCircle, circle]
         }
-
-        collisions.push(circleCollision)
       }
     }
   }
 
-  return collisions.sort((a, b) => a.time - b.time)
+  return earliestEvent
 }

@@ -1,4 +1,4 @@
-import { Cushion, CushionCollision, getCollisions } from "./collision";
+import { Cushion, CushionCollision, getCollision } from "./collision";
 import Vector2D from './vector2d'
 import Circle from "./circle";
 
@@ -49,9 +49,8 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
   })
 
   while (currentTime < time) {
-    const collisions = getCollisions(tableWidth, tableHeight, circles)
+    const collision = getCollision(tableWidth, tableHeight, circles)
 
-    const collision = collisions[0]
 
     // Don't use relative time.
     // Always recompute all absolute time positions per collision
