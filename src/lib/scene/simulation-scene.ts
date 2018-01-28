@@ -19,7 +19,7 @@ class Ball {
     // this.sphereMaterial = new THREE.MeshLambertMaterial({
     //   color: 0xCC0000
     // });
-    this.sphereMaterial = new THREE.MeshStandardMaterial({ color: stringToRGB(this.circle.id), roughness: 0, transparent: true, opacity: 0.95});
+    this.sphereMaterial = new THREE.MeshStandardMaterial({ color: stringToRGB(this.circle.id), roughness: 0 });
     const envMap = new THREE.TextureLoader().load('env-map.png');
     envMap.mapping = THREE.SphericalReflectionMapping;
     this.sphereMaterial.envMap = envMap;
