@@ -116,16 +116,16 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   // preparing for `ax^2 + bx + x = 0` solution
 
   // a = (vx^2 + vy^2)
-  const a = vx * vx + vy * vy
+  const a = (vx * vx) + (vy * vy)
   const r = radiusA + radiusB
 
   // b = 2 (a*vx + b*vy)
-  const b = 2 * (posX * vx + posY * vy)
+  const b = 2 * ((posX * vx) + (posY * vy))
   // c = a^2 + b^2 - (r1 + r2) ^ 2
-  const c = distanceSquared - r * r
+  const c = distanceSquared - (r * r)
 
   // the part +- sqrt(b^2 - 4ac)
-  const sqrtPart = Math.sqrt(b * b - 4 * a * c)
+  const sqrtPart = Math.sqrt((b * b) - (4 * a * c))
   const divisor = 2 * a
 
   const res1 = (-b + sqrtPart) / divisor
