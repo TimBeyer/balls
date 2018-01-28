@@ -25,11 +25,12 @@ const randomCircle = function () {
   const x = (Math.random() * (TABLE_WIDTH - 2 * radius)) + radius;
   const y = (Math.random() * (TABLE_HEIGHT - 2 * radius)) + radius;
 
-  const velocity: [number, number] = [Math.random() * 0.5, Math.random() * 0.5]
+  const velocity: [number, number] = [Math.random() * 0.8, Math.random() * 0.8]
   return new Circle([x, y], velocity, radius, 0)
 
 }
 
+console.time('initCircles')
 let circles = [];
 
 const circlesCollide = function (c1: Circle, c2: Circle) : boolean {
@@ -38,7 +39,7 @@ const circlesCollide = function (c1: Circle, c2: Circle) : boolean {
 }
 
 // just brute force random generate a couple of non-overlapping circles instead of doing some fancy maths
-while(circles.length <= 30) {
+while(circles.length <= 150) {
   let currentCircle = randomCircle()
   let circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
   let attemptCount = 1
@@ -47,7 +48,7 @@ while(circles.length <= 30) {
     currentCircle = randomCircle()
     circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
 
-    if (attemptCount > 1000) {
+    if (attemptCount > 5000) {
       circles = []
       attemptCount = 0
     }
@@ -55,10 +56,12 @@ while(circles.length <= 30) {
 
   circles.push(currentCircle)
 }
+console.timeEnd('initCircles')
 
 console.time('simulate')
-const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, 120000, circles);
+const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, 60000, circles);
 console.timeEnd('simulate')
+console.log('Events:', simulatedResults.length)
 const initialValues = simulatedResults.shift()
 // console.log(JSON.stringify(simulatedResults, null, 2))
 
@@ -92,9 +95,9 @@ const scene = new SimulationScene(canvas, replayCircles);
 
 const renderers: Renderer[] = [
   new CircleRenderer(canvas),
-  new TailRenderer(canvas, 200),
+  // new TailRenderer(canvas, 100),
   new CollisionRenderer(canvas),
-  new CollisionPreviewRenderer(canvas, 4)
+  new CollisionPreviewRenderer(canvas, 10)
 ]
 
 let start
@@ -138,7 +141,9 @@ function step(timestamp) {
     // console.log('Next up', nextEvent)
   }
 
-  ctx.fillStyle = "#888888";
+  // ctx.fillStyle = "#0a6c03";
+  // ctx.fillStyle = "#0f0f0f";
+  ctx.fillStyle = "#777777";
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
   scene.renderAtTime(progress)
