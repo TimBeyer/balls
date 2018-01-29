@@ -1,4 +1,4 @@
-import { Cushion, CushionCollision, getCollision, CollisionFinder } from "./collision";
+import { Cushion, CushionCollision, CollisionFinder } from "./collision";
 import Vector2D from './vector2d'
 import Circle from "./circle";
 
@@ -150,7 +150,9 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
 
     replay.push(replayData)
 
-    collisionFinder.recompute(collision.circles[0].id, collision.circles[1] && collision.circles[1].id)
+    for (const circle of collision.circles) {
+      collisionFinder.recompute(circle.id)
+    }
   }
   return replay
 }

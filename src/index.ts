@@ -15,6 +15,9 @@ import * as Stats from 'stats.js'
 const TABLE_WIDTH = 2840
 const TABLE_HEIGHT = 1420
 
+const NUM_BALLS = 100
+const SIM_TIME = 60000
+
 const millimeterToPixel = 1/2
 const CANVAS_WIDTH = TABLE_WIDTH * millimeterToPixel
 const CANVAS_HEIGHT = TABLE_HEIGHT * millimeterToPixel
@@ -30,6 +33,7 @@ const randomCircle = function () {
 
 }
 
+console.log(`Intializing ${NUM_BALLS} balls`)
 console.time('initCircles')
 let circles = [];
 
@@ -39,7 +43,7 @@ const circlesCollide = function (c1: Circle, c2: Circle) : boolean {
 }
 
 // just brute force random generate a couple of non-overlapping circles instead of doing some fancy maths
-while(circles.length <= 10) {
+while(circles.length <= NUM_BALLS) {
   let currentCircle = randomCircle()
   let circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
   let attemptCount = 1
@@ -58,8 +62,9 @@ while(circles.length <= 10) {
 }
 console.timeEnd('initCircles')
 
+console.log(`Simulating ${NUM_BALLS} balls for ${SIM_TIME / 1000} seconds`)
 console.time('simulate')
-const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, 60000, circles);
+const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, SIM_TIME, circles);
 console.timeEnd('simulate')
 console.log('Events:', simulatedResults.length)
 const initialValues = simulatedResults.shift()
@@ -82,6 +87,7 @@ let state: { [key: string]: Circle } = initialValues.snapshots.reduce((circles, 
 const circleIds = Object.keys(state)
 const replayCircles = Object.values(state)
 
+console.time('setupScene')
 var renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.gammaInput = true;
@@ -92,6 +98,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new SimulationScene(canvas, replayCircles);
+// Initial render since it may take a while with loads of entities
+renderer.render(scene.scene, scene.camera);
 
 const renderers: Renderer[] = [
   new CircleRenderer(canvas),
@@ -99,12 +107,13 @@ const renderers: Renderer[] = [
   new CollisionRenderer(canvas),
   new CollisionPreviewRenderer(canvas, 10)
 ]
+console.timeEnd('setupScene')
 
 let start
 let nextEvent = simulatedResults.shift()
 
 var stats = new Stats();
-stats.showPanel(1); // 0: fps, 1: ms, 2: mb, 3+: custom
+stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
 document.body.appendChild(stats.dom);
 
 function step(timestamp) {
@@ -121,7 +130,7 @@ function step(timestamp) {
 
   while (nextEvent && (progress >= nextEvent.time)) {
     // console.log('Processing event at', nextEvent)
-    // let timeToEvent = nextEvent.absoluteTime - previousProgress
+    // let timeToEvent = nextEvent.time - previousProgress
     
     for (const snapshot of nextEvent.snapshots) {
       const circle = state[snapshot.id]
