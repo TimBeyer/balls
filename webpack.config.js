@@ -8,6 +8,10 @@ module.exports = {
         test: /\.tsx?$/,
         use: 'ts-loader',
         exclude: /node_modules/
+      },
+      {
+        test: /\.worker\.js$/,
+        use: { loader: 'worker-loader' }
       }
     ]
   },
