@@ -1,8 +1,7 @@
-import Renderer from "./renderer";
-import Circle from "../circle";
-import { ReplayData } from "../simulation";
-import stringToRGB from "../string-to-rgb";
-
+import Renderer from './renderer'
+import Circle from '../circle'
+import { ReplayData } from '../simulation'
+import stringToRGB from '../string-to-rgb'
 
 export default class CollisionRenderer extends Renderer {
   constructor(canvas: HTMLCanvasElement) {
@@ -17,18 +16,32 @@ export default class CollisionRenderer extends Renderer {
     if (nextCircleIds.includes(circle.id)) {
       this.ctx.strokeStyle = stringToRGB(circle.id)
 
-      const snapshotCollisionPosition = this.toScreenCoords(nextEvent.snapshots.find((snapshot) => snapshot.id === circle.id).position)
+      const snapshotCollisionPosition = this.toScreenCoords(
+        nextEvent.snapshots.find((snapshot) => snapshot.id === circle.id)!.position,
+      )
 
       // Draw collision circle
       this.ctx.beginPath()
-      this.ctx.arc(snapshotCollisionPosition[0], snapshotCollisionPosition[1] , circle.radius * this.millimeterToPixel, 0, Math.PI * 2)
+      this.ctx.arc(
+        snapshotCollisionPosition[0],
+        snapshotCollisionPosition[1],
+        circle.radius * this.millimeterToPixel,
+        0,
+        Math.PI * 2,
+      )
       this.ctx.closePath()
       this.ctx.stroke()
 
       // Draw collision circle
       this.ctx.beginPath()
       this.ctx.strokeStyle = stringToRGB(circle.id)
-      this.ctx.arc(snapshotCollisionPosition[0], snapshotCollisionPosition[1], circle.radius * this.millimeterToPixel, 0, Math.PI * 2)
+      this.ctx.arc(
+        snapshotCollisionPosition[0],
+        snapshotCollisionPosition[1],
+        circle.radius * this.millimeterToPixel,
+        0,
+        Math.PI * 2,
+      )
       this.ctx.closePath()
       this.ctx.stroke()
 
@@ -39,6 +52,6 @@ export default class CollisionRenderer extends Renderer {
       this.ctx.lineTo(snapshotCollisionPosition[0], snapshotCollisionPosition[1])
       this.ctx.closePath()
       this.ctx.stroke()
-    } 
+    }
   }
 }

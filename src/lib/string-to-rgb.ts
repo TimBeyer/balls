@@ -1,17 +1,14 @@
-
-function hashCode(str) { // java String#hashCode
-  var hash = 0;
-  for (var i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+function hashCode(str: string) {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash)
   }
-  return hash;
+  return hash
 }
 
-export default function stringToRGB(string) {
-  let i = hashCode(string)
-  var c = (i & 0x00FFFFFF)
-    .toString(16)
-    .toUpperCase();
+export default function stringToRGB(string: string) {
+  const i = hashCode(string)
+  const c = (i & 0x00ffffff).toString(16).toUpperCase()
 
-  return "#" + "00000".substring(0, 6 - c.length) + c;
+  return '#' + '00000'.substring(0, 6 - c.length) + c
 }

@@ -1,8 +1,8 @@
-import { ReplayData } from "./simulation";
+import { ReplayData } from './simulation'
 
 export enum ResponseMessageType {
   'SIMULATION_INITIALIZED',
-  'SIMULATION_DATA'
+  'SIMULATION_DATA',
 }
 
 export interface InitializationResponsePayload {
@@ -20,17 +20,17 @@ export interface SimulationResponsePayload {
 export type ResponsePayload = InitializationResponsePayload | SimulationResponsePayload
 
 export interface WorkerResponse {
-  type: ResponseMessageType,
+  type: ResponseMessageType
   payload: ResponsePayload
 }
 
 export interface WorkerInitializationResponse extends WorkerResponse {
-  type: ResponseMessageType.SIMULATION_INITIALIZED,
+  type: ResponseMessageType.SIMULATION_INITIALIZED
   payload: InitializationResponsePayload
 }
 
 export interface WorkerSimulationResponse extends WorkerResponse {
-  type: ResponseMessageType.SIMULATION_DATA,
+  type: ResponseMessageType.SIMULATION_DATA
   payload: SimulationResponsePayload
 }
 
