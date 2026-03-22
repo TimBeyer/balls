@@ -30,6 +30,7 @@ let simulationScene: SimulationScene | null = null
 let stats: Stats | null = null
 let animationFrameId: number | null = null
 let start: number | undefined
+let resizeHandler: (() => void) | null = null
 
 function createCanvas(config: SimulationConfig) {
   const millimeterToPixel = 1 / 2
@@ -50,6 +51,10 @@ function startSimulation() {
   if (worker) {
     worker.terminate()
     worker = null
+  }
+  if (resizeHandler) {
+    window.removeEventListener('resize', resizeHandler)
+    resizeHandler = null
   }
   if (threeRenderer) {
     document.body.removeChild(threeRenderer.domElement)
@@ -148,6 +153,15 @@ function initScene() {
     document.body.appendChild(stats.dom)
   }
   stats.dom.style.display = config.showStats ? 'block' : 'none'
+
+  resizeHandler = () => {
+    const width = window.innerWidth
+    const height = window.innerHeight
+    renderer.setSize(width, height)
+    scene.camera.aspect = width / height
+    scene.camera.updateProjectionMatrix()
+  }
+  window.addEventListener('resize', resizeHandler)
 
   function step(timestamp: number) {
     stats!.begin()
