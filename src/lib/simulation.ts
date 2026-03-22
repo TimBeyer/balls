@@ -1,6 +1,6 @@
-import { Cushion, CushionCollision, CollisionFinder } from "./collision";
+import { Cushion, CushionCollision, CollisionFinder } from './collision'
 import Vector2D from './vector2d'
-import Circle from "./circle";
+import Circle from './circle'
 
 export interface CircleSnapshot {
   id: string
@@ -11,25 +11,24 @@ export interface CircleSnapshot {
 }
 
 export interface ReplayData {
-
   // Absolute timestamp
   time: number
   snapshots: CircleSnapshot[]
-  type: EventType,
+  type: EventType
   cushionType?: Cushion
 }
 
 export enum EventType {
   CircleCollision = 'CIRCLE_COLLISION',
   CushionCollision = 'CUSHION_COLLISION',
-  StateUpdate = 'STATE_UPDATE'
+  StateUpdate = 'STATE_UPDATE',
 }
 
 /**
- * 
+ *
  * @param time the total timespan (in seconds) to simulate
  */
-export function simulate (tableWidth: number, tableHeight: number, time: number, circles: Circle[]) {
+export function simulate(tableWidth: number, tableHeight: number, time: number, circles: Circle[]) {
   let currentTime = 0
   const replay: ReplayData[] = []
 
@@ -43,16 +42,15 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
         position: [circle.position[0], circle.position[1]],
         velocity: [circle.velocity[0], circle.velocity[1]],
         radius: circle.radius,
-        time: circle.time
+        time: circle.time,
       } as CircleSnapshot
-    })
+    }),
   })
 
   const collisionFinder = new CollisionFinder(tableWidth, tableHeight, circles)
 
   while (currentTime < time) {
     const collision = collisionFinder.pop()
-
 
     // Don't use relative time.
     // Always recompute all absolute time positions per collision
@@ -63,12 +61,12 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
     }
 
     if (collision.type === 'Cushion') {
-      const cc = (collision as CushionCollision)
+      const cc = collision as CushionCollision
       const circle = cc.circles[0]
       if (cc.cushion === Cushion.North || cc.cushion === Cushion.South) {
-        circle.velocity[1] = (-circle.velocity[1])
+        circle.velocity[1] = -circle.velocity[1]
       } else if (cc.cushion === Cushion.East || cc.cushion === Cushion.West) {
-        circle.velocity[0] = (-circle.velocity[0])
+        circle.velocity[0] = -circle.velocity[0]
       }
 
       // To prevent floating point rounding errors from interfering
@@ -86,7 +84,6 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
         case Cushion.West:
           circle.position[0] = circle.radius
           break
-
       }
     } else {
       const c1 = collision.circles[0]
@@ -97,38 +94,38 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
       const [x1, y1] = c1.position
       const [x2, y2] = c2.position
       let dx = x1 - x2,
-          dy = y1 - y2
-      
+        dy = y1 - y2
+
       const dist = Math.sqrt(dx * dx + dy * dy)
       dx = dx / dist
       dy = dy / dist
 
       const v1dot = dx * vx1 + dy * vy1
-      
-      const vx1Collide = dx * v1dot, 
-            vy1Collide = dy * v1dot
+
+      const vx1Collide = dx * v1dot,
+        vy1Collide = dy * v1dot
       const vx1Remainder = vx1 - vx1Collide,
-            vy1Remainder = vy1 - vy1Collide
+        vy1Remainder = vy1 - vy1Collide
 
       const v2dot = dx * vx2 + dy * vy2
       const vx2Collide = dx * v2dot,
-            vy2Collide = dy * v2dot
+        vy2Collide = dy * v2dot
 
-      const vx2Remainder = vx2 - vx2Collide, 
-            vy2Remainder = vy2 - vy2Collide
+      const vx2Remainder = vx2 - vx2Collide,
+        vy2Remainder = vy2 - vy2Collide
 
       const v1Length = Math.sqrt(vx1Collide * vx1Collide + vy1Collide * vy1Collide) * Math.sign(v1dot)
       const v2Length = Math.sqrt(vx2Collide * vx2Collide + vy2Collide * vy2Collide) * Math.sign(v2dot)
 
-      const commonVelocity = 2 * (c1.mass * v1Length + c2.mass * v2Length) / (c1.mass + c2.mass)
+      const commonVelocity = (2 * (c1.mass * v1Length + c2.mass * v2Length)) / (c1.mass + c2.mass)
       const v1LengthAfterCollision = commonVelocity - v1Length
       const v2LengthAfterCollision = commonVelocity - v2Length
 
       const c1Scale = v1LengthAfterCollision / v1Length
       const c2Scale = v2LengthAfterCollision / v2Length
-      
+
       c1.velocity = [vx1Collide * c1Scale + vx1Remainder, vy1Collide * c1Scale + vy1Remainder]
-      c2.velocity = [vx2Collide * c2Scale + vx2Remainder, vy2Collide * c2Scale + vy2Remainder] 
+      c2.velocity = [vx2Collide * c2Scale + vx2Remainder, vy2Collide * c2Scale + vy2Remainder]
     }
 
     currentTime = collision.time
@@ -143,9 +140,9 @@ export function simulate (tableWidth: number, tableHeight: number, time: number,
           position: [circle.position[0], circle.position[1]],
           velocity: [circle.velocity[0], circle.velocity[1]],
           radius: circle.radius,
-          time: circle.time
+          time: circle.time,
         } as CircleSnapshot
-      })
+      }),
     }
 
     replay.push(replayData)

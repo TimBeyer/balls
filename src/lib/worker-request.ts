@@ -1,12 +1,11 @@
-
 export enum RequestMessageType {
   'INITIALIZE_SIMULATION',
-  'REQUEST_SIMULATION_DATA'
+  'REQUEST_SIMULATION_DATA',
 }
 
 export interface InitializationRequestPayload {
-  numBalls: number,
-  tableWidth: number,
+  numBalls: number
+  tableWidth: number
   tableHeight: number
 }
 
@@ -17,21 +16,21 @@ export interface SimulationRequestPayload {
 export type RequestPayload = InitializationRequestPayload | SimulationRequestPayload
 
 export interface WorkerRequest {
-  type: RequestMessageType,
+  type: RequestMessageType
   payload: RequestPayload
 }
 
 export interface WorkerInitializationRequest extends WorkerRequest {
-  type: RequestMessageType.INITIALIZE_SIMULATION,
+  type: RequestMessageType.INITIALIZE_SIMULATION
   payload: InitializationRequestPayload
 }
 
 export interface WorkerSimulationRequest extends WorkerRequest {
-  type: RequestMessageType.REQUEST_SIMULATION_DATA,
+  type: RequestMessageType.REQUEST_SIMULATION_DATA
   payload: SimulationRequestPayload
 }
 
-export function isWorkerInitializationRequest (req: WorkerRequest): req is WorkerInitializationRequest {
+export function isWorkerInitializationRequest(req: WorkerRequest): req is WorkerInitializationRequest {
   return req.type === RequestMessageType.INITIALIZE_SIMULATION
 }
 

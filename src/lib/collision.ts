@@ -1,16 +1,16 @@
-import Circle from "./circle";
+import Circle from './circle'
 import { RBTree } from 'bintrees'
 
 export enum Cushion {
-  North = "NORTH",
-  East = "EAST",
-  South = "SOUTH",
-  West = "WEST",
+  North = 'NORTH',
+  East = 'EAST',
+  South = 'SOUTH',
+  West = 'WEST',
 }
 
 export interface Collision {
   type: 'Circle' | 'Cushion'
-  circles: Circle[],
+  circles: Circle[]
   time: number
 }
 
@@ -46,7 +46,7 @@ export function getCushionCollision(tableWidth: number, tableHeight: number, cir
   const westCollision = dx / vx
 
   let earliestEventTime = Number.POSITIVE_INFINITY
-  let earliestEvent = undefined
+  let earliestEvent: CushionCollision | undefined = undefined
 
   if (isOkCollision(northCollision)) {
     if (earliestEventTime > northCollision) {
@@ -75,11 +75,11 @@ export function getCushionCollision(tableWidth: number, tableHeight: number, cir
       earliestEvent = { type: 'Cushion', circles, cushion: Cushion.West, time: westCollision + circleTime }
     }
   }
-  
-  return earliestEvent
+
+  return earliestEvent!
 }
 
-export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number {
+export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number | undefined {
   const v1 = circleA.velocity
   const v2 = circleB.velocity
 
@@ -92,14 +92,13 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   const radiusA = circleA.radius
   const radiusB = circleB.radius
 
-
   /*
-  * We pretend that one of the circles is static and use it as the frame of reference
-  * We use the relative position and velocity
-  * to calculate a collision with the static circle then
-  */
+   * We pretend that one of the circles is static and use it as the frame of reference
+   * We use the relative position and velocity
+   * to calculate a collision with the static circle then
+   */
 
-  // first calculate relative velocity 
+  // first calculate relative velocity
   const vx = v1[0] - v2[0]
   const vy = v1[1] - v2[1]
   // then relative position
@@ -109,24 +108,23 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   // if the circles are already colliding, do not detect it
   const distanceSquared = posX * posX + posY * posY
   const distance = Math.sqrt(distanceSquared)
-  if (distance < (radiusA + radiusB)) {
-    // console.log('Already colliding', (radiusA + radiusB) - distance)
+  if (distance < radiusA + radiusB) {
     return undefined
   }
 
   // preparing for `ax^2 + bx + x = 0` solution
 
   // a = (vx^2 + vy^2)
-  const a = (vx * vx) + (vy * vy)
+  const a = vx * vx + vy * vy
   const r = radiusA + radiusB
 
   // b = 2 (a*vx + b*vy)
-  const b = 2 * ((posX * vx) + (posY * vy))
+  const b = 2 * (posX * vx + posY * vy)
   // c = a^2 + b^2 - (r1 + r2) ^ 2
-  const c = distanceSquared - (r * r)
+  const c = distanceSquared - r * r
 
   // the part +- sqrt(b^2 - 4ac)
-  const sqrtPart = Math.sqrt((b * b) - (4 * a * c))
+  const sqrtPart = Math.sqrt(b * b - 4 * a * c)
   const divisor = 2 * a
 
   const res1 = (-b + sqrtPart) / divisor
@@ -141,12 +139,14 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
       return res2 + circleB.time
     }
   }
+
+  return undefined
 }
 
 class RelationStore<Entity> {
   private entityStores: Map<string, Set<Entity>> = new Map()
 
-  add (keys: string[], entities: Entity[]) {
+  add(keys: string[], entities: Entity[]) {
     for (const key of keys) {
       const entityStore = this.entityStores.get(key) || new Set()
       for (const entity of entities) {
@@ -156,20 +156,22 @@ class RelationStore<Entity> {
     }
   }
 
-  get (keys: string[]): Entity[] {
-    const allEntities = new Set()
-    
+  get(keys: string[]): Entity[] {
+    const allEntities = new Set<Entity>()
+
     for (const key of keys) {
       const entityStore = this.entityStores.get(key)
-      for (const entity of entityStore.values()) {
-        allEntities.add(entity)
+      if (entityStore) {
+        for (const entity of entityStore.values()) {
+          allEntities.add(entity)
+        }
       }
     }
 
     return Array.from(allEntities)
   }
 
-  delete (keys: string[]) {
+  delete(keys: string[]) {
     for (const key of keys) {
       this.entityStores.delete(key)
     }
@@ -184,10 +186,12 @@ export class CollisionFinder {
   private circles: Circle[]
   private circlesById: Map<string, Circle> = new Map()
 
-  constructor (tableWidth: number, tableHeight: number, circles: Circle[]) {
-    const tree = new RBTree<Collision>(function (a, b) { return a.time - b.time; });
+  constructor(tableWidth: number, tableHeight: number, circles: Circle[]) {
+    const tree = new RBTree<Collision>(function (a, b) {
+      return a.time - b.time
+    })
 
-    this.tree = tree;
+    this.tree = tree
     this.tableWidth = tableWidth
     this.tableHeight = tableHeight
     this.circles = circles
@@ -195,16 +199,16 @@ export class CollisionFinder {
     this.initialize()
   }
 
-  initialize () {
+  private initialize() {
     for (const circle of this.circles) {
       this.circlesById.set(circle.id, circle)
     }
 
     const circles = this.circles.slice()
-    let referenceCircle
+    let referenceCircle: Circle | undefined
 
     while (circles.length > 0) {
-      referenceCircle = circles.shift()
+      referenceCircle = circles.shift()!
       const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
 
       this.uuidToCollision.add([referenceCircle.id], [cushionCollision])
@@ -217,19 +221,18 @@ export class CollisionFinder {
           const collision: Collision = {
             type: 'Circle',
             time,
-            circles: [referenceCircle, circle]
+            circles: [referenceCircle, circle],
           }
-  
+
           this.tree.insert(collision)
           this.uuidToCollision.add([circle.id, referenceCircle.id], [collision])
         }
       }
-
     }
   }
 
-  pop (): Collision {
-    const next = this.tree.min()
+  pop(): Collision {
+    const next = this.tree.min()!
     this.tree.remove(next)
 
     for (const circle of next.circles) {
@@ -244,9 +247,9 @@ export class CollisionFinder {
     return next
   }
 
-  recompute (circleId: string) {
-    const referenceCircle = this.circlesById.get(circleId)
-    
+  recompute(circleId: string) {
+    const referenceCircle = this.circlesById.get(circleId)!
+
     const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
 
     this.uuidToCollision.add([referenceCircle.id], [cushionCollision])
@@ -263,9 +266,9 @@ export class CollisionFinder {
         const collision: Collision = {
           type: 'Circle',
           time,
-          circles: [referenceCircle, circle]
+          circles: [referenceCircle, circle],
         }
-  
+
         this.tree.insert(collision)
         this.uuidToCollision.add([circle.id, referenceCircle.id], [collision])
       }
