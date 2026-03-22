@@ -138,7 +138,7 @@ function initScene() {
   document.body.appendChild(renderer.domElement)
   threeRenderer = renderer
 
-  const scene = new SimulationScene(canvas2D, replayCircles, config)
+  const scene = new SimulationScene(canvas2D, replayCircles, config, renderer.domElement)
   simulationScene = scene
   renderer.render(scene.scene, scene.camera)
 

@@ -55,7 +55,7 @@ export default class SimulationScene {
   private spotLight2: THREE.SpotLight
   private config: SimulationConfig
 
-  constructor(canvas: HTMLCanvasElement, circles: Circle[], config: SimulationConfig) {
+  constructor(canvas: HTMLCanvasElement, circles: Circle[], config: SimulationConfig, rendererCanvas?: HTMLCanvasElement) {
     this.config = config
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(config.fov, window.innerWidth / window.innerHeight, 1, 10000)
@@ -68,13 +68,13 @@ export default class SimulationScene {
       this.scene.add(ball.sphere)
     }
 
-    const { controls, spotLight1, spotLight2 } = this.initialize()
+    const { controls, spotLight1, spotLight2 } = this.initialize(rendererCanvas)
     this.controls = controls
     this.spotLight1 = spotLight1
     this.spotLight2 = spotLight2
   }
 
-  private initialize() {
+  private initialize(rendererCanvas?: HTMLCanvasElement) {
     this.canvasTexture.minFilter = THREE.LinearFilter
     const material = new THREE.MeshPhongMaterial({ map: this.canvasTexture })
     const geometry = new THREE.BoxGeometry(this.config.tableWidth, 1, this.config.tableHeight)
@@ -120,7 +120,8 @@ export default class SimulationScene {
     spotLight2.shadow.mapSize.height = this.config.shadowMapSize
     this.scene.add(spotLight2)
 
-    const controls = new OrbitControls(this.camera, document.querySelector('canvas')!)
+    const domElement = rendererCanvas ?? document.querySelector('canvas')!
+    const controls = new OrbitControls(this.camera, domElement)
     controls.enableZoom = true
     controls.enablePan = true
     controls.enableDamping = false
