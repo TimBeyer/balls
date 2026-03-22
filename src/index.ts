@@ -2,109 +2,155 @@ import Circle from './lib/circle'
 import { ReplayData } from './lib/simulation'
 import Renderer from './lib/renderers/renderer'
 import CircleRenderer from './lib/renderers/circle-renderer'
+import TailRenderer from './lib/renderers/tail-renderer'
+import CollisionRenderer from './lib/renderers/collision-renderer'
+import CollisionPreviewRenderer from './lib/renderers/collision-preview-renderer'
 import * as THREE from 'three'
 import SimulationScene from './lib/scene/simulation-scene'
 import Stats from 'stats.js'
 import { WorkerInitializationRequest, RequestMessageType } from './lib/worker-request'
 import { WorkerResponse, isWorkerInitializationResponse, isWorkerSimulationResponse } from './lib/worker-response'
+import { createConfig, SimulationConfig } from './lib/config'
+import { createUI } from './lib/ui'
 
-// Measurements in millimeters
-const TABLE_WIDTH = 2840
-const TABLE_HEIGHT = 1420
-
-const NUM_BALLS = 150
-
-const millimeterToPixel = 1 / 2
-const CANVAS_WIDTH = TABLE_WIDTH * millimeterToPixel
-const CANVAS_HEIGHT = TABLE_HEIGHT * millimeterToPixel
-
-const canvas = document.createElement('canvas')
-canvas.width = CANVAS_WIDTH
-canvas.height = CANVAS_HEIGHT
-
-const ctx = canvas.getContext('2d')!
+const config = createConfig()
 
 const PRECALC = 10000
-let fetchingMore = false
 
-const worker = new Worker(new URL('./lib/simulation.worker.ts', import.meta.url), { type: 'module' })
-
-const initMessage: WorkerInitializationRequest = {
-  type: RequestMessageType.INITIALIZE_SIMULATION,
-  payload: {
-    numBalls: NUM_BALLS,
-    tableHeight: TABLE_HEIGHT,
-    tableWidth: TABLE_WIDTH,
-  },
-}
+let worker: Worker | null = null
 let state: { [key: string]: Circle } = {}
 let circleIds: string[] = []
 let replayCircles: Circle[] = []
 let nextEvent: ReplayData | undefined
 let simulatedResults: ReplayData[] = []
+let fetchingMore = false
 
-worker.postMessage(initMessage)
-worker.addEventListener('message', (event: MessageEvent) => {
-  const response: WorkerResponse = event.data
+let threeRenderer: THREE.WebGLRenderer | null = null
+let simulationScene: SimulationScene | null = null
+let stats: Stats | null = null
+let animationFrameId: number | null = null
+let start: number | undefined
 
-  if (isWorkerInitializationResponse(response)) {
-    if (response.payload.status) {
-      worker.postMessage({
-        type: RequestMessageType.REQUEST_SIMULATION_DATA,
-        payload: {
-          time: PRECALC * 2,
-        },
-      })
-    }
-  } else if (isWorkerSimulationResponse(response)) {
-    const results = response.payload.data
-    if (response.payload.initialValues) {
-      state = response.payload.initialValues.snapshots.reduce((circles: { [key: string]: Circle }, snapshot) => {
-        circles[snapshot.id] = new Circle(
-          snapshot.position,
-          snapshot.velocity,
-          snapshot.radius,
-          snapshot.time,
-          100,
-          snapshot.id,
-        )
-        return circles
-      }, {})
+function createCanvas(config: SimulationConfig) {
+  const millimeterToPixel = 1 / 2
+  const canvas = document.createElement('canvas')
+  canvas.width = config.tableWidth * millimeterToPixel
+  canvas.height = config.tableHeight * millimeterToPixel
+  return canvas
+}
 
-      circleIds = Object.keys(state)
-      replayCircles = Object.values(state)
-      nextEvent = results.shift()
-      queueMicrotask(initScene)
-    }
-    simulatedResults = simulatedResults.concat(results)
-    fetchingMore = false
+let canvas2D = createCanvas(config)
+
+function startSimulation() {
+  // Clean up previous simulation
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
   }
-})
+  if (worker) {
+    worker.terminate()
+    worker = null
+  }
+  if (threeRenderer) {
+    document.body.removeChild(threeRenderer.domElement)
+    threeRenderer.dispose()
+    threeRenderer = null
+  }
+
+  // Reset state
+  state = {}
+  circleIds = []
+  replayCircles = []
+  nextEvent = undefined
+  simulatedResults = []
+  fetchingMore = false
+  start = undefined
+  simulationScene = null
+
+  // New canvas
+  canvas2D = createCanvas(config)
+
+  // Start new worker
+  worker = new Worker(new URL('./lib/simulation.worker.ts', import.meta.url), { type: 'module' })
+
+  const initMessage: WorkerInitializationRequest = {
+    type: RequestMessageType.INITIALIZE_SIMULATION,
+    payload: {
+      numBalls: config.numBalls,
+      tableHeight: config.tableHeight,
+      tableWidth: config.tableWidth,
+    },
+  }
+
+  worker.postMessage(initMessage)
+  worker.addEventListener('message', (event: MessageEvent) => {
+    const response: WorkerResponse = event.data
+
+    if (isWorkerInitializationResponse(response)) {
+      if (response.payload.status) {
+        worker!.postMessage({
+          type: RequestMessageType.REQUEST_SIMULATION_DATA,
+          payload: {
+            time: PRECALC * 2,
+          },
+        })
+      }
+    } else if (isWorkerSimulationResponse(response)) {
+      const results = response.payload.data
+      if (response.payload.initialValues) {
+        state = response.payload.initialValues.snapshots.reduce(
+          (circles: { [key: string]: Circle }, snapshot) => {
+            circles[snapshot.id] = new Circle(
+              snapshot.position,
+              snapshot.velocity,
+              snapshot.radius,
+              snapshot.time,
+              100,
+              snapshot.id,
+            )
+            return circles
+          },
+          {},
+        )
+
+        circleIds = Object.keys(state)
+        replayCircles = Object.values(state)
+        nextEvent = results.shift()
+        queueMicrotask(initScene)
+      }
+      simulatedResults = simulatedResults.concat(results)
+      fetchingMore = false
+    }
+  })
+}
 
 function initScene() {
-  console.time('setupScene')
   const renderer = new THREE.WebGLRenderer()
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.outputColorSpace = THREE.SRGBColorSpace
-
-  renderer.shadowMap.enabled = true
+  renderer.shadowMap.enabled = config.shadowsEnabled
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   document.body.appendChild(renderer.domElement)
+  threeRenderer = renderer
 
-  const scene = new SimulationScene(canvas, replayCircles)
-  // Initial render since it may take a while with loads of entities
+  const scene = new SimulationScene(canvas2D, replayCircles, config)
+  simulationScene = scene
   renderer.render(scene.scene, scene.camera)
 
-  const renderers: Renderer[] = [new CircleRenderer(canvas)]
-  console.timeEnd('setupScene')
+  const circleRenderer = new CircleRenderer(canvas2D)
+  const tailRenderer = new TailRenderer(canvas2D, config.tailLength)
+  const collisionRenderer = new CollisionRenderer(canvas2D)
+  const collisionPreviewRenderer = new CollisionPreviewRenderer(canvas2D, config.collisionPreviewCount)
 
-  let start: number | undefined
-  const stats = new Stats()
-  stats.showPanel(0) // 0: fps, 1: ms, 2: mb, 3+: custom
-  document.body.appendChild(stats.dom)
+  if (!stats) {
+    stats = new Stats()
+    stats.showPanel(0)
+    document.body.appendChild(stats.dom)
+  }
+  stats.dom.style.display = config.showStats ? 'block' : 'none'
 
   function step(timestamp: number) {
-    stats.begin()
+    stats!.begin()
 
     if (!nextEvent) {
       console.log('Simulation ended')
@@ -113,13 +159,12 @@ function initScene() {
 
     if (!start) start = timestamp
 
-    const progress = timestamp - start
+    const progress = (timestamp - start) * config.simulationSpeed
 
     const lastEvent = simulatedResults[simulatedResults.length - 1]
     if (!fetchingMore && lastEvent && lastEvent.time - progress <= PRECALC) {
-      console.log('Running out of data, requesting more')
       fetchingMore = true
-      worker.postMessage({
+      worker!.postMessage({
         type: RequestMessageType.REQUEST_SIMULATION_DATA,
         payload: {
           time: PRECALC,
@@ -145,8 +190,17 @@ function initScene() {
       }
     }
 
-    ctx.fillStyle = '#777777'
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+    // 2D canvas rendering
+    const ctx = canvas2D.getContext('2d')!
+    ctx.fillStyle = config.tableColor
+    ctx.fillRect(0, 0, canvas2D.width, canvas2D.height)
+
+    // Build active renderers list based on config (reuse stateful renderers)
+    const renderers: Renderer[] = []
+    if (config.showCircles) renderers.push(circleRenderer)
+    if (config.showTails) renderers.push(tailRenderer)
+    if (config.showCollisions) renderers.push(collisionRenderer)
+    if (config.showCollisionPreview) renderers.push(collisionPreviewRenderer)
 
     scene.renderAtTime(progress)
     for (const r of renderers) {
@@ -156,9 +210,31 @@ function initScene() {
       }
     }
 
+    // Update live parameters
+    if (stats) {
+      stats.dom.style.display = config.showStats ? 'block' : 'none'
+    }
+    renderer.shadowMap.enabled = config.shadowsEnabled
+
     renderer.render(scene.scene, scene.camera)
-    stats.end()
-    window.requestAnimationFrame(step)
+    stats!.end()
+    animationFrameId = window.requestAnimationFrame(step)
   }
-  window.requestAnimationFrame(step)
+  animationFrameId = window.requestAnimationFrame(step)
 }
+
+// --- UI Setup ---
+createUI(config, {
+  onRestartRequired: () => startSimulation(),
+  onLiveUpdate: () => {
+    if (simulationScene) {
+      simulationScene.updateFromConfig(config)
+    }
+    if (threeRenderer) {
+      threeRenderer.shadowMap.enabled = config.shadowsEnabled
+    }
+  },
+})
+
+// Start initial simulation
+startSimulation()
