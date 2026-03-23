@@ -1,0 +1,86 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (PR)
+        run: npm ci
+
+      - name: Run benchmarks (PR)
+        run: npm run benchmark:json > pr-results.json
+        timeout-minutes: 15
+
+      - name: Determine merge base
+        id: merge-base
+        run: |
+          BASE_SHA=$(git merge-base HEAD origin/${{ github.base_ref }})
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short $BASE_SHA)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout baseline
+        run: git checkout ${{ steps.merge-base.outputs.sha }}
+
+      - name: Install dependencies (baseline)
+        run: npm ci
+
+      - name: Run benchmarks (baseline)
+        id: baseline
+        run: npm run benchmark:json > baseline-results.json
+        timeout-minutes: 15
+        continue-on-error: true
+
+      - name: Checkout PR (for comparison script)
+        run: git checkout ${{ github.head_ref || github.sha }}
+
+      - name: Install dependencies (PR, for comparison script)
+        run: npm ci
+
+      - name: Compare results
+        id: compare
+        run: |
+          if [ -f baseline-results.json ] && [ -f pr-results.json ]; then
+            npx tsx scripts/compare-benchmarks.ts baseline-results.json pr-results.json > comment-body.md
+          else
+            echo "## Benchmark Comparison" > comment-body.md
+            echo "" >> comment-body.md
+            echo "⚠️ Baseline benchmark failed or was not available. Only PR results shown." >> comment-body.md
+            echo "" >> comment-body.md
+            echo '```json' >> comment-body.md
+            cat pr-results.json >> comment-body.md
+            echo '```' >> comment-body.md
+          fi
+
+      - name: Build comment
+        run: |
+          {
+            cat comment-body.md
+            echo ""
+            echo "---"
+            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
+          } > comment.md
+
+      - name: Post or update PR comment
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: comment.md
+          comment-tag: benchmark-results
