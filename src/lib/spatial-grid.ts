@@ -1,4 +1,5 @@
 import Circle from './circle'
+import { earliestBoundaryCrossing, LinearBoundary } from './motion'
 
 export interface CellTransition {
   time: number
@@ -85,56 +86,29 @@ export class SpatialGrid {
     const col = cell % this.cols
     const row = Math.floor(cell / this.cols)
 
-    let minDt = Infinity
-    let bestCol = col
-    let bestRow = row
+    const boundaries: LinearBoundary[] = []
+    const targets: { col: number; row: number }[] = []
 
-    if (vx > 0) {
-      const nextCol = col + 1
-      if (nextCol < this.cols) {
-        const dt = (this.cellSize * nextCol - x) / vx
-        if (dt > Number.EPSILON && dt < minDt) {
-          minDt = dt
-          bestCol = nextCol
-          bestRow = row
-        }
-      }
-    } else if (vx < 0) {
-      const prevCol = col - 1
-      if (prevCol >= 0) {
-        const dt = (this.cellSize * col - x) / vx
-        if (dt > Number.EPSILON && dt < minDt) {
-          minDt = dt
-          bestCol = prevCol
-          bestRow = row
-        }
-      }
+    if (vx > 0 && col + 1 < this.cols) {
+      boundaries.push({ position: x, velocity: vx, target: this.cellSize * (col + 1) })
+      targets.push({ col: col + 1, row })
+    } else if (vx < 0 && col > 0) {
+      boundaries.push({ position: x, velocity: vx, target: this.cellSize * col })
+      targets.push({ col: col - 1, row })
     }
 
-    if (vy > 0) {
-      const nextRow = row + 1
-      if (nextRow < this.rows) {
-        const dt = (this.cellSize * nextRow - y) / vy
-        if (dt > Number.EPSILON && dt < minDt) {
-          minDt = dt
-          bestCol = col
-          bestRow = nextRow
-        }
-      }
-    } else if (vy < 0) {
-      const prevRow = row - 1
-      if (prevRow >= 0) {
-        const dt = (this.cellSize * row - y) / vy
-        if (dt > Number.EPSILON && dt < minDt) {
-          minDt = dt
-          bestCol = col
-          bestRow = prevRow
-        }
-      }
+    if (vy > 0 && row + 1 < this.rows) {
+      boundaries.push({ position: y, velocity: vy, target: this.cellSize * (row + 1) })
+      targets.push({ col, row: row + 1 })
+    } else if (vy < 0 && row > 0) {
+      boundaries.push({ position: y, velocity: vy, target: this.cellSize * row })
+      targets.push({ col, row: row - 1 })
     }
 
-    if (minDt === Infinity) return null
+    const result = earliestBoundaryCrossing(boundaries)
+    if (!result) return null
 
-    return { time: circle.time + minDt, toCell: bestRow * this.cols + bestCol }
+    const t = targets[result.index]
+    return { time: circle.time + result.dt, toCell: t.row * this.cols + t.col }
   }
 }

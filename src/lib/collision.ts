@@ -1,6 +1,7 @@
 import Circle from './circle'
 import { RBTree } from 'bintrees'
 import { SpatialGrid } from './spatial-grid'
+import { earliestBoundaryCrossing } from './motion'
 
 export enum Cushion {
   North = 'NORTH',
@@ -33,60 +34,21 @@ export interface CellTransitionEvent {
 
 export type TreeEvent = Collision | CellTransitionEvent
 
-const isOkCollision = function (time: number) {
-  return time > Number.EPSILON && time !== Infinity
-}
-
 export function getCushionCollision(tableWidth: number, tableHeight: number, circle: Circle): CushionCollision {
-  const circleTime = circle.time
-  const circles = [circle]
+  const cushions = [Cushion.North, Cushion.East, Cushion.South, Cushion.West]
+  const result = earliestBoundaryCrossing([
+    { position: circle.position[1], velocity: circle.velocity[1], target: tableHeight - circle.radius },
+    { position: circle.position[0], velocity: circle.velocity[0], target: tableWidth - circle.radius },
+    { position: circle.position[1], velocity: circle.velocity[1], target: circle.radius },
+    { position: circle.position[0], velocity: circle.velocity[0], target: circle.radius },
+  ])!
 
-  const posX = circle.position[0]
-  const posY = circle.position[1]
-
-  const dx = circle.radius - posX
-  const dy = circle.radius - posY
-
-  const vx = circle.velocity[0]
-  const vy = circle.velocity[1]
-
-  const northCollision = (tableHeight - circle.radius - posY) / vy
-  const eastCollision = (tableWidth - circle.radius - posX) / vx
-  const southCollision = dy / vy
-  const westCollision = dx / vx
-
-  let earliestEventTime = Number.POSITIVE_INFINITY
-  let earliestEvent: CushionCollision | undefined = undefined
-
-  if (isOkCollision(northCollision)) {
-    if (earliestEventTime > northCollision) {
-      earliestEventTime = northCollision
-      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.North, time: northCollision + circleTime }
-    }
+  return {
+    type: 'Cushion',
+    circles: [circle],
+    cushion: cushions[result.index],
+    time: result.dt + circle.time,
   }
-
-  if (isOkCollision(eastCollision)) {
-    if (earliestEventTime > eastCollision) {
-      earliestEventTime = eastCollision
-      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.East, time: eastCollision + circleTime }
-    }
-  }
-
-  if (isOkCollision(southCollision)) {
-    if (earliestEventTime > southCollision) {
-      earliestEventTime = southCollision
-      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.South, time: southCollision + circleTime }
-    }
-  }
-
-  if (isOkCollision(westCollision)) {
-    if (earliestEventTime > westCollision) {
-      earliestEventTime = westCollision
-      earliestEvent = { type: 'Cushion', circles, cushion: Cushion.West, time: westCollision + circleTime }
-    }
-  }
-
-  return earliestEvent!
 }
 
 export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number | undefined {
