@@ -224,8 +224,23 @@ export class CollisionFinder {
 
       if (next.type === 'CellTransition') {
         const event = next as CellTransitionEvent
-        this.grid.moveCircle(event.circles[0], event.toCell)
-        this.scheduleNextCellTransition(event.circles[0])
+        const circle = event.circles[0]
+        this.grid.moveCircle(circle, event.toCell)
+        this.scheduleNextCellTransition(circle)
+
+        const neighbors = this.grid.getNearbyCircles(circle)
+        for (const neighbor of neighbors) {
+          const time = getCircleCollisionTime(circle, neighbor)
+          if (time) {
+            const collision: Collision = {
+              type: 'Circle',
+              time,
+              circles: [circle, neighbor],
+            }
+            this.tree.insert(collision)
+            this.uuidToCollision.add([circle.id, neighbor.id], [collision])
+          }
+        }
         continue
       }
 
