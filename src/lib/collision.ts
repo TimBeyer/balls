@@ -1,5 +1,6 @@
 import Circle from './circle'
 import { RBTree } from 'bintrees'
+import { SpatialGrid } from './spatial-grid'
 
 export enum Cushion {
   North = 'NORTH',
@@ -22,6 +23,15 @@ export interface CushionCollision extends Collision {
   type: 'Cushion'
   cushion: Cushion
 }
+
+export interface CellTransitionEvent {
+  type: 'CellTransition'
+  time: number
+  circles: [Circle]
+  toCell: number
+}
+
+export type TreeEvent = Collision | CellTransitionEvent
 
 const isOkCollision = function (time: number) {
   return time > Number.EPSILON && time !== Infinity
@@ -143,10 +153,10 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   return undefined
 }
 
-class RelationStore<Entity> {
-  private entityStores: Map<string, Set<Entity>> = new Map()
+class RelationStore {
+  private entityStores: Map<string, Set<TreeEvent>> = new Map()
 
-  add(keys: string[], entities: Entity[]) {
+  add(keys: string[], entities: TreeEvent[]) {
     for (const key of keys) {
       const entityStore = this.entityStores.get(key) || new Set()
       for (const entity of entities) {
@@ -156,8 +166,8 @@ class RelationStore<Entity> {
     }
   }
 
-  get(keys: string[]): Entity[] {
-    const allEntities = new Set<Entity>()
+  get(keys: string[]): TreeEvent[] {
+    const allEntities = new Set<TreeEvent>()
 
     for (const key of keys) {
       const entityStore = this.entityStores.get(key)
@@ -179,15 +189,16 @@ class RelationStore<Entity> {
 }
 
 export class CollisionFinder {
-  private uuidToCollision: RelationStore<Collision> = new RelationStore()
-  private tree: RBTree<Collision>
+  private uuidToCollision: RelationStore = new RelationStore()
+  private tree: RBTree<TreeEvent>
   private tableWidth: number
   private tableHeight: number
   private circles: Circle[]
   private circlesById: Map<string, Circle> = new Map()
+  private grid: SpatialGrid
 
   constructor(tableWidth: number, tableHeight: number, circles: Circle[]) {
-    const tree = new RBTree<Collision>(function (a, b) {
+    const tree = new RBTree<TreeEvent>(function (a, b) {
       return a.time - b.time
     })
 
@@ -195,6 +206,7 @@ export class CollisionFinder {
     this.tableWidth = tableWidth
     this.tableHeight = tableHeight
     this.circles = circles
+    this.grid = new SpatialGrid(tableWidth, tableHeight, circles.length > 0 ? circles[0].radius * 4 : 150)
 
     this.initialize()
   }
@@ -202,76 +214,93 @@ export class CollisionFinder {
   private initialize() {
     for (const circle of this.circles) {
       this.circlesById.set(circle.id, circle)
+      this.grid.addCircle(circle)
     }
 
-    const circles = this.circles.slice()
-    let referenceCircle: Circle | undefined
-
-    while (circles.length > 0) {
-      referenceCircle = circles.shift()!
-      const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
-
-      this.uuidToCollision.add([referenceCircle.id], [cushionCollision])
-
+    for (const circle of this.circles) {
+      const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, circle)
+      this.uuidToCollision.add([circle.id], [cushionCollision])
       this.tree.insert(cushionCollision)
 
-      for (const circle of circles) {
-        const time = getCircleCollisionTime(referenceCircle, circle)
+      const neighbors = this.grid.getNearbyCircles(circle)
+      for (const neighbor of neighbors) {
+        if (circle.id >= neighbor.id) continue
+        const time = getCircleCollisionTime(circle, neighbor)
         if (time) {
           const collision: Collision = {
             type: 'Circle',
             time,
-            circles: [referenceCircle, circle],
+            circles: [circle, neighbor],
           }
-
           this.tree.insert(collision)
-          this.uuidToCollision.add([circle.id, referenceCircle.id], [collision])
+          this.uuidToCollision.add([circle.id, neighbor.id], [collision])
         }
       }
+
+      this.scheduleNextCellTransition(circle)
+    }
+  }
+
+  private scheduleNextCellTransition(circle: Circle) {
+    const transition = this.grid.getNextCellTransition(circle)
+    if (transition) {
+      const event: CellTransitionEvent = {
+        type: 'CellTransition',
+        time: transition.time,
+        circles: [circle],
+        toCell: transition.toCell,
+      }
+      this.tree.insert(event)
+      this.uuidToCollision.add([circle.id], [event])
     }
   }
 
   pop(): Collision {
-    const next = this.tree.min()!
-    this.tree.remove(next)
+    for (;;) {
+      const next = this.tree.min()!
+      this.tree.remove(next)
 
-    for (const circle of next.circles) {
-      const collisions = this.uuidToCollision.get([circle.id])
-      this.uuidToCollision.delete([circle.id])
-
-      for (const collision of collisions) {
-        this.tree.remove(collision)
+      if (next.type === 'CellTransition') {
+        const event = next as CellTransitionEvent
+        this.grid.moveCircle(event.circles[0], event.toCell)
+        this.scheduleNextCellTransition(event.circles[0])
+        continue
       }
-    }
 
-    return next
+      for (const circle of next.circles) {
+        const events = this.uuidToCollision.get([circle.id])
+        this.uuidToCollision.delete([circle.id])
+
+        for (const event of events) {
+          this.tree.remove(event)
+        }
+      }
+
+      return next as Collision
+    }
   }
 
   recompute(circleId: string) {
     const referenceCircle = this.circlesById.get(circleId)!
 
     const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
-
     this.uuidToCollision.add([referenceCircle.id], [cushionCollision])
-
     this.tree.insert(cushionCollision)
 
-    for (const circle of this.circles) {
-      if (circle.id === circleId) {
-        continue
-      }
-
-      const time = getCircleCollisionTime(referenceCircle, circle)
+    const neighbors = this.grid.getNearbyCircles(referenceCircle)
+    for (const neighbor of neighbors) {
+      const time = getCircleCollisionTime(referenceCircle, neighbor)
       if (time) {
         const collision: Collision = {
           type: 'Circle',
           time,
-          circles: [referenceCircle, circle],
+          circles: [referenceCircle, neighbor],
         }
-
         this.tree.insert(collision)
-        this.uuidToCollision.add([circle.id, referenceCircle.id], [collision])
+        this.uuidToCollision.add([neighbor.id, referenceCircle.id], [collision])
       }
     }
+
+    this.scheduleNextCellTransition(referenceCircle)
   }
 }
