@@ -61,31 +61,25 @@ Run `npm run benchmark` to measure current performance. Use `npm run benchmark:j
 - **Description:** Add `positionAtTimeInto(time: number, out: Vector2D): Vector2D` method that writes into a reusable buffer. Use in `getCircleCollisionTime()` (line 89) to avoid allocating a new `[number, number]` tuple per call. Keep existing `positionAtTime()` for renderer callers.
 - **Impact:** Eliminates O(n²) tuple allocations during collision detection. Reduces GC pressure.
 
-### 9. Optimize RelationStore.get()
-- **Status:** Not started
-- **File:** `src/lib/collision.ts`
-- **Description:** Add `getSet(key: string): Set<Entity> | undefined` that returns the raw Set directly. Update `pop()` (line 239) to use it and iterate without creating new Set + Array.from().
-- **Impact:** Eliminates 2 allocations per collision event in `pop()`.
-
-### 10. Early discriminant check in quadratic solver
+### 9. Early discriminant check in quadratic solver
 - **Status:** Not started
 - **File:** `src/lib/collision.ts`
 - **Description:** In `getCircleCollisionTime()`, compute discriminant `b*b - 4*a*c` first. If negative, return `undefined` immediately — avoids `Math.sqrt(NaN)` and downstream NaN checks.
 - **Impact:** Saves one `Math.sqrt()` call for every non-colliding circle pair (~80%+ of all pairs).
 
-### 11. Cushion collision velocity culling
+### 10. Cushion collision velocity culling
 - **Status:** Not started
 - **File:** `src/lib/collision.ts`
 - **Description:** In `getCushionCollision()`, skip wall calculations when velocity direction makes collision impossible: skip north if `vy <= 0`, east if `vx <= 0`, south if `vy >= 0`, west if `vx >= 0`.
 - **Impact:** Reduces 4 divisions to 1-2 on average per cushion collision check.
 
-### 12. Lazy circle time advancement
+### 11. Lazy circle time advancement
 - **Status:** Not started
 - **File:** `src/lib/simulation.ts`
 - **Description:** In the simulation loop (lines 55-61), only `advanceTime()` on the circles involved in the collision, not all N circles. Other circles' positions are computed lazily via `positionAtTime()`. Risk: may accumulate float drift — mitigate by resyncing all circles every ~100 events.
 - **Impact:** Eliminates ~148 unnecessary `advanceTime()` calls per collision event at 150 balls.
 
-### 13. Spatial grid for circle generation
+### 12. Spatial grid for circle generation
 - **Status:** Not started
 - **File:** `src/lib/simulation.worker.ts`
 - **Description:** Use a grid-based spatial index during circle placement to check only nearby cells for overlap, instead of scanning all existing circles. Also: instead of full reset after 5000 failures, try systematic grid-based placement with jitter.
@@ -95,13 +89,13 @@ Run `npm run benchmark` to measure current performance. Use `npm run benchmark:j
 
 ## Worker Communication
 
-### 14. Use numeric indices in ReplayData
+### 13. Use numeric indices in ReplayData
 - **Status:** Not started
 - **Files:** `src/lib/simulation.ts`, `src/lib/simulation.worker.ts`, `src/index.ts`
 - **Description:** Assign each circle a numeric index (0..n-1) during initialization. Use the index instead of UUID string in `CircleSnapshot.id`. Main thread maintains index→Circle mapping.
 - **Impact:** Reduces serialization overhead per snapshot (number vs 36-char UUID string).
 
-### 15. Avoid array copies in snapshots
+### 14. Avoid array copies in snapshots
 - **Status:** Not started
 - **File:** `src/lib/simulation.ts`
 - **Description:** In snapshot creation (lines 137-145), use `position: circle.position` directly instead of `[circle.position[0], circle.position[1]]`. Safe because `postMessage` structured clone copies the data before any subsequent mutation.

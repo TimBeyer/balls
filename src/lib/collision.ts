@@ -155,14 +155,14 @@ function isEventValid(event: TreeEvent): boolean {
 }
 
 /**
- * Manages all predicted collision events using an RBTree priority queue and a
+ * Manages all predicted collision events using a min-heap priority queue and a
  * spatial grid for neighbor lookups.
  *
  * ## Epoch-based lazy invalidation
  *
  * When a collision fires, the involved circles' velocities change, invalidating
  * any pending events that assumed the old trajectories. Rather than eagerly
- * searching the tree and removing every affected event (the old RelationStore
+ * searching the heap and removing every affected event (the old RelationStore
  * approach — O(k log n) per collision), we use a lazy scheme:
  *
  * 1. Each Circle has a monotonic `epoch` counter.

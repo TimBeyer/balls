@@ -14,7 +14,7 @@ npm run dev
 Most collision simulations step forward in small time increments and check for overlaps. This one doesn't step at all. Instead:
 
 1. **Every collision time is computed analytically** — circle-circle uses the quadratic formula on relative velocity, cushion collisions use linear equations
-2. **Events are processed in exact chronological order** from a Red-Black Tree priority queue
+2. **Events are processed in exact chronological order** from a min-heap priority queue
 3. **Between collisions, positions are exact** — `position + velocity × Δt`, no accumulation of floating-point error
 4. **Simulation and rendering are fully decoupled** — a Web Worker solves physics ahead of time, the main thread just plays it back
 
@@ -54,7 +54,7 @@ Everything is tweakable at runtime through a [Tweakpane](https://tweakpane.githu
  │ Generate circles     │─────────────→│ Buffer (10s ahead)       │
  │ simulate() loop      │              │ requestAnimationFrame    │
  │ CollisionFinder      │←─────────────│ Request more when low    │
- │   (RBTree + epochs)  │   request    │ positionAtTime(t) interp │
+ │   (MinHeap + epochs) │   request    │ positionAtTime(t) interp │
  └──────────────────────┘              │ Three.js + Canvas render │
                                        │ Tweakpane UI             │
                                        └──────────────────────────┘
@@ -67,9 +67,9 @@ The worker streams `ReplayData[]` events to the main thread, which buffers 10 se
 
 - **Absolute time per circle** — each ball tracks its own `time` field. `advanceTime(t)` computes position relative to that time, avoiding cumulative drift across thousands of collisions.
 
-- **Epoch-based lazy invalidation** — when a collision fires, involved balls increment their epoch counter. Stale predictions still sitting in the priority queue are skipped at O(1) cost when popped, avoiding expensive tree removals.
+- **Epoch-based lazy invalidation** — when a collision fires, involved balls increment their epoch counter. Stale predictions still sitting in the min-heap are skipped at O(1) cost when popped, avoiding expensive removals.
 
-- **RBTree sequence tiebreaker** — the `bintrees` RBTree silently drops inserts when the comparator returns 0. Every event carries a unique `seq` field so `(time, seq)` is always unique. Without this, simultaneous collisions get silently lost and balls tunnel through each other.
+- **MinHeap sequence tiebreaker** — every event carries a monotonic `seq` field so the heap orders by `(time, seq)`. Unlike the old RBTree (which silently dropped duplicate keys), the min-heap allows duplicates — `seq` is not required for correctness but preserves deterministic, reproducible results.
 
 - **Boundary snapping** — on cushion collision, position is forced to exactly `radius` from the wall. This prevents floating-point creep from gradually pushing balls outside the table.
 
