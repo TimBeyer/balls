@@ -71,6 +71,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       self.postMessage(response)
     } else {
       const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles)
+      simulatedResults.shift() // Remove the initial StateUpdate — not needed for subsequent batches
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
         payload: {
