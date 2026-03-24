@@ -52,11 +52,10 @@ export function simulate(tableWidth: number, tableHeight: number, time: number, 
   while (currentTime < time) {
     const collision = collisionFinder.pop()
 
-    // Don't use relative time.
-    // Always recompute all absolute time positions per collision
-    // This costs a tiny bit more computational power and introduces more floating point rounding errors
-    // but makes the collision detection more reliable
-    for (const circle of circles) {
+    // Only advance circles involved in this collision.
+    // Collision detection already handles circles at different times via positionAtTime(),
+    // so non-colliding circles can stay at their last-updated time.
+    for (const circle of collision.circles) {
       circle.advanceTime(collision.time)
     }
 
