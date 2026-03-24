@@ -41,8 +41,6 @@ export interface CellTransitionEvent {
   toCell: number
   epochs: [number]
   seq: number
-  /** When true, this is the last transition in a batch — schedule the next batch after processing. */
-  batchEnd: boolean
 }
 
 export type TreeEvent = Collision | CellTransitionEvent
@@ -196,18 +194,13 @@ export class CollisionFinder {
   private grid: SpatialGrid
   /** Monotonic counter ensuring deterministic event ordering */
   private nextSeq: number = 0
-  /** Number of cell transitions to batch-schedule at once */
-  private static readonly CELL_TRANSITION_BATCH_SIZE = 5
 
   constructor(tableWidth: number, tableHeight: number, circles: Circle[]) {
     this.heap = new MinHeap<TreeEvent>()
     this.tableWidth = tableWidth
     this.tableHeight = tableHeight
     this.circles = circles
-    // Cell size of radius*6 (3 diameters) balances transition frequency against neighbor count.
-    // Larger than the minimum radius*4 to reduce the number of cell transition events
-    // that dominate the queue at high ball counts.
-    this.grid = new SpatialGrid(tableWidth, tableHeight, circles.length > 0 ? circles[0].radius * 6 : 150)
+    this.grid = new SpatialGrid(tableWidth, tableHeight, circles.length > 0 ? circles[0].radius * 4 : 150)
 
     this.initialize()
   }
@@ -239,21 +232,20 @@ export class CollisionFinder {
         }
       }
 
-      this.scheduleCellTransitionBatch(circle)
+      this.scheduleNextCellTransition(circle)
     }
   }
 
-  private scheduleCellTransitionBatch(circle: Circle) {
-    const transitions = this.grid.getNextCellTransitions(circle, CollisionFinder.CELL_TRANSITION_BATCH_SIZE)
-    for (let i = 0; i < transitions.length; i++) {
+  private scheduleNextCellTransition(circle: Circle) {
+    const transition = this.grid.getNextCellTransition(circle)
+    if (transition) {
       const event: CellTransitionEvent = {
         type: 'CellTransition',
-        time: transitions[i].time,
+        time: transition.time,
         circles: [circle],
-        toCell: transitions[i].toCell,
+        toCell: transition.toCell,
         epochs: [circle.epoch],
         seq: this.nextSeq++,
-        batchEnd: i === transitions.length - 1,
       }
       this.heap.push(event)
     }
@@ -276,14 +268,14 @@ export class CollisionFinder {
       if (next.type === 'CellTransition') {
         const event = next as CellTransitionEvent
         const circle = event.circles[0]
+        const fromCell = this.grid.getCellOf(circle)
         this.grid.moveCircle(circle, event.toCell)
-        // Only schedule the next batch when the current batch is exhausted.
-        // Intermediate transitions in the batch are already in the heap.
-        if (event.batchEnd) {
-          this.scheduleCellTransitionBatch(circle)
-        }
+        this.scheduleNextCellTransition(circle)
 
-        const neighbors = this.grid.getNearbyCircles(circle)
+        // Only check circles in cells that are NEW to the 3x3 neighborhood.
+        // Circles in cells that were in both the old and new 3x3 already have
+        // valid collision predictions in the queue (epoch hasn't changed).
+        const neighbors = this.grid.getDeltaNeighbors(circle, fromCell)
         for (const neighbor of neighbors) {
           const time = getCircleCollisionTime(circle, neighbor)
           if (time) {
@@ -338,6 +330,6 @@ export class CollisionFinder {
       }
     }
 
-    this.scheduleCellTransitionBatch(referenceCircle)
+    this.scheduleNextCellTransition(referenceCircle)
   }
 }
