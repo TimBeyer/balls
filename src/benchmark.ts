@@ -1,13 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import { Bench } from 'tinybench'
 import Circle from './lib/circle'
+import { generateCircles } from './lib/generate-circles'
 import { simulate } from './lib/simulation'
-import type Vector2D from './lib/vector2d'
 
-// Measurements in millimeters
-const TABLE_WIDTH = 2840
-const TABLE_HEIGHT = 1420
-const RADIUS = 37.5
 const SIMULATION_TIME = 60000
 
 // --- Seeded PRNG (mulberry32) for deterministic benchmarks ---
@@ -21,44 +17,6 @@ function mulberry32(seed: number): () => number {
   }
 }
 
-function generateCircles(numCircles: number, seed: number): Circle[] {
-  const random = mulberry32(seed)
-
-  const randomCircle = (): Circle => {
-    const x = random() * (TABLE_WIDTH - 2 * RADIUS) + RADIUS
-    const y = random() * (TABLE_HEIGHT - 2 * RADIUS) + RADIUS
-    const velocity: Vector2D = [random() * 0.7 - random() * 1.4, random() * 0.7 - random() * 1.4]
-    return new Circle([x, y], velocity, RADIUS, 0)
-  }
-
-  const circlesCollide = (c1: Circle, c2: Circle): boolean => {
-    const dx = c1.x - c2.x
-    const dy = c1.y - c2.y
-    const dist = c1.radius + c2.radius
-    return dx * dx + dy * dy <= dist * dist
-  }
-
-  let circles: Circle[] = []
-
-  while (circles.length <= numCircles) {
-    let currentCircle = randomCircle()
-    let collides = circles.some((c) => circlesCollide(c, currentCircle))
-    let attemptCount = 1
-    while (collides) {
-      attemptCount += 1
-      currentCircle = randomCircle()
-      collides = circles.some((c) => circlesCollide(c, currentCircle))
-      if (attemptCount > 5000) {
-        circles = []
-        attemptCount = 0
-      }
-    }
-    circles.push(currentCircle)
-  }
-
-  return circles
-}
-
 function cloneCircles(circles: Circle[]): Circle[] {
   return circles.map(
     (c) => new Circle([c.position[0], c.position[1]], [c.velocity[0], c.velocity[1]], c.radius, c.time, c.mass, c.id),
@@ -70,14 +28,19 @@ interface BenchmarkCase {
   name: string
   numCircles: number
   seed: number
+  tableWidth: number
+  tableHeight: number
 }
 
 const CASES: BenchmarkCase[] = [
-  { name: '10 circles / 60s', numCircles: 10, seed: 1001 },
-  { name: '20 circles / 60s', numCircles: 20, seed: 2002 },
-  { name: '40 circles / 60s', numCircles: 40, seed: 3003 },
-  { name: '80 circles / 60s', numCircles: 80, seed: 4004 },
-  { name: '150 circles / 60s', numCircles: 150, seed: 5005 },
+  { name: '10 circles / 60s', numCircles: 10, seed: 1001, tableWidth: 2840, tableHeight: 1420 },
+  { name: '20 circles / 60s', numCircles: 20, seed: 2002, tableWidth: 2840, tableHeight: 1420 },
+  { name: '40 circles / 60s', numCircles: 40, seed: 3003, tableWidth: 2840, tableHeight: 1420 },
+  { name: '80 circles / 60s', numCircles: 80, seed: 4004, tableWidth: 2840, tableHeight: 1420 },
+  { name: '150 circles / 60s', numCircles: 150, seed: 5005, tableWidth: 2840, tableHeight: 1420 },
+  { name: '300 circles / 60s', numCircles: 300, seed: 6006, tableWidth: 4020, tableHeight: 2010 },
+  { name: '500 circles / 60s', numCircles: 500, seed: 7007, tableWidth: 5190, tableHeight: 2595 },
+  { name: '1000 circles / 60s', numCircles: 1000, seed: 8008, tableWidth: 7340, tableHeight: 3670 },
 ]
 
 interface BenchmarkResult {
@@ -93,7 +56,7 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
 
   if (!jsonMode) {
     console.log(`Billiards Simulation Benchmark`)
-    console.log(`Table: ${TABLE_WIDTH}x${TABLE_HEIGHT}mm, Ball radius: ${RADIUS}mm`)
+    console.log(`Ball radius: ${RADIUS}mm`)
     console.log(`Simulation time: ${SIMULATION_TIME / 1000}s per run`)
     console.log('---')
   }
@@ -102,7 +65,8 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
   if (!jsonMode) console.log('Generating circle layouts...')
   const circleSetups = new Map<string, Circle[]>()
   for (const c of CASES) {
-    circleSetups.set(c.name, generateCircles(c.numCircles, c.seed))
+    if (!jsonMode) console.log(`  ${c.name}: ${c.tableWidth}x${c.tableHeight}mm table`)
+    circleSetups.set(c.name, generateCircles(c.numCircles, c.tableWidth, c.tableHeight, mulberry32(c.seed)))
   }
   if (!jsonMode) console.log('Done.\n')
 
@@ -116,7 +80,7 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
     const setupCircles = circleSetups.get(c.name)!
     bench.add(c.name, () => {
       const circles = cloneCircles(setupCircles)
-      simulate(TABLE_WIDTH, TABLE_HEIGHT, SIMULATION_TIME, circles)
+      simulate(c.tableWidth, c.tableHeight, SIMULATION_TIME, circles)
     })
   }
 
