@@ -120,18 +120,22 @@ jobs:
             gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
               --jq '.body' > existing-comment.md
 
-            # Extract previous runs content (everything inside <details>, or the
-            # old top-level content if this is the first update)
             PREV_MARKER="<!-- benchmark-previous -->"
             if grep -q "${PREV_MARKER}" existing-comment.md; then
-              # Already has a history section — extract its contents
-              sed -n "/${PREV_MARKER}/,\$p" existing-comment.md | tail -n +2 > previous-runs.md
+              # Has history — extract the old current run (between top marker and prev marker)
+              sed -n "2,/${PREV_MARKER}/{ /${PREV_MARKER}/d; p; }" existing-comment.md > old-current-run.md
+              # Extract inner content of old <details> (strip the wrapper tags)
+              sed -n "/${PREV_MARKER}/,\$p" existing-comment.md | tail -n +2 \
+                | sed '1{/^<details>/d;}' \
+                | sed '1{/^<summary>Previous runs<\/summary>/d;}' \
+                | sed '${/^<\/details>/d;}' > old-history.md
             else
-              # First update — the entire old content (minus marker) becomes history
-              sed '1{/^<!-- benchmark-results -->/d;}' existing-comment.md > previous-runs.md
+              # First update — old content (minus marker) becomes the old current run
+              sed '1{/^<!-- benchmark-results -->/d;}' existing-comment.md > old-current-run.md
+              : > old-history.md
             fi
 
-            # Build updated comment: marker + new run + flat history in collapsible section
+            # Build updated comment: new run on top, all previous runs flat in one <details>
             {
               echo "${MARKER}"
               cat new-run.md
@@ -141,7 +145,8 @@ jobs:
               echo "<details>"
               echo "<summary>Previous runs</summary>"
               echo ""
-              cat previous-runs.md
+              cat old-current-run.md
+              cat old-history.md
               echo ""
               echo "</details>"
             } > comment.md
