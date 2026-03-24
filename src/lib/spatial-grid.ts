@@ -13,8 +13,6 @@ export class SpatialGrid {
   private circleToCell: Map<string, number> = new Map()
   /** Reusable buffer for getNearbyCircles to avoid allocating a new array per call */
   private neighborBuf: Circle[] = []
-  /** Reusable buffer for getDeltaNeighbors to avoid allocating a new array per call */
-  private deltaBuf: Circle[] = []
 
   constructor(tableWidth: number, tableHeight: number, cellSize: number) {
     this.cellSize = cellSize
@@ -81,37 +79,6 @@ export class SpatialGrid {
     return result
   }
 
-  /**
-   * Returns circles in the new 3x3 neighborhood that were NOT in the old 3x3.
-   * Used after a cell transition to avoid redundant collision checks with neighbors
-   * that already have valid predictions in the event queue.
-   */
-  getDeltaNeighbors(circle: Circle, fromCell: number): Circle[] {
-    const toCell = this.circleToCell.get(circle.id)!
-    const toCol = toCell % this.cols
-    const toRow = Math.floor(toCell / this.cols)
-    const fromCol = fromCell % this.cols
-    const fromRow = Math.floor(fromCell / this.cols)
-    const result = this.deltaBuf
-    result.length = 0
-
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const nr = toRow + dr
-        const nc = toCol + dc
-        if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) continue
-        // Skip cells that were already in the old 3x3 neighborhood
-        if (Math.abs(nc - fromCol) <= 1 && Math.abs(nr - fromRow) <= 1) continue
-        const cellCircles = this.cells[nr * this.cols + nc]
-        for (let i = 0; i < cellCircles.length; i++) {
-          if (cellCircles[i] !== circle) result.push(cellCircles[i])
-        }
-      }
-    }
-
-    return result
-  }
-
   getNextCellTransition(circle: Circle): CellTransition | null {
     const x = circle.position[0]
     const y = circle.position[1]
@@ -144,5 +111,57 @@ export class SpatialGrid {
 
     if (minDt === Infinity) return null
     return { time: circle.time + minDt, toCell: toRow * this.cols + toCol }
+  }
+
+  /**
+   * Compute the next `count` cell transitions along the circle's straight-line trajectory.
+   * Returns transitions in chronological order. Stops early if the circle reaches a grid edge.
+   * Used for batch scheduling: push all at once, avoiding per-transition scheduling overhead in pop().
+   */
+  getNextCellTransitions(circle: Circle, count: number): CellTransition[] {
+    let x = circle.position[0]
+    let y = circle.position[1]
+    const vx = circle.velocity[0]
+    const vy = circle.velocity[1]
+    const cell = this.circleToCell.get(circle.id)!
+    let col = cell % this.cols
+    let row = Math.floor(cell / this.cols)
+    let currentTime = circle.time
+
+    const transitions: CellTransition[] = []
+
+    for (let i = 0; i < count; i++) {
+      let minDt = Infinity
+      let toCol = col
+      let toRow = row
+
+      if (vx > 0 && col + 1 < this.cols) {
+        const dt = (this.cellSize * (col + 1) - x) / vx
+        if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col + 1; toRow = row }
+      } else if (vx < 0 && col > 0) {
+        const dt = (this.cellSize * col - x) / vx
+        if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col - 1; toRow = row }
+      }
+
+      if (vy > 0 && row + 1 < this.rows) {
+        const dt = (this.cellSize * (row + 1) - y) / vy
+        if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col; toRow = row + 1 }
+      } else if (vy < 0 && row > 0) {
+        const dt = (this.cellSize * row - y) / vy
+        if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col; toRow = row - 1 }
+      }
+
+      if (minDt === Infinity) break
+
+      currentTime += minDt
+      x += vx * minDt
+      y += vy * minDt
+      col = toCol
+      row = toRow
+
+      transitions.push({ time: currentTime, toCell: row * this.cols + col })
+    }
+
+    return transitions
   }
 }
