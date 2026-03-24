@@ -1,5 +1,5 @@
 import Circle from './circle'
-import { RBTree } from 'bintrees'
+import { MinHeap } from './min-heap'
 import { SpatialGrid } from './spatial-grid'
 import { earliestBoundaryCrossing } from './motion'
 
@@ -19,9 +19,8 @@ export interface Collision {
    *  epoch differs from its recorded value, the event is stale and should be skipped.
    *  See `isEventValid()` and the epoch-based invalidation docs in docs/ARCHITECTURE.md. */
   epochs: number[]
-  /** Unique sequence number for RBTree tiebreaking. bintrees RBTree silently drops
-   *  inserts when the comparator returns 0, so every event needs a unique key.
-   *  The comparator uses `time` as primary sort and `seq` as tiebreaker. */
+  /** Sequence number for deterministic heap ordering. The heap sorts by (time, seq)
+   *  so events with identical times are processed in insertion order. */
   seq: number
 }
 
@@ -166,33 +165,27 @@ function isEventValid(event: TreeEvent): boolean {
  * removal, but the per-collision cost drops from O(k log n) removals to O(1)
  * epoch increments.
  *
- * ## RBTree seq tiebreaker
+ * ## MinHeap seq tiebreaker
  *
- * bintrees RBTree silently drops inserts when the comparator returns 0 (no
- * duplicate keys). Since recompute(A) and recompute(B) both predict the A-B
- * collision with identical times (the quadratic is symmetric), a monotonic
- * `seq` field is used as a tiebreaker: comparator is `time || seq`. This
- * guarantees every event has a unique key.
+ * Events are ordered by (time, seq). The `seq` tiebreaker ensures
+ * deterministic ordering when multiple events share the same time (common:
+ * recompute(A) and recompute(B) both predict A-B collision with the same
+ * time since the quadratic is symmetric). Unlike the old RBTree, the heap
+ * allows duplicates, so `seq` is not required for correctness — but it
+ * preserves reproducible simulation results.
  */
 export class CollisionFinder {
-  private tree: RBTree<TreeEvent>
+  private heap: MinHeap<TreeEvent>
   private tableWidth: number
   private tableHeight: number
   private circles: Circle[]
   private circlesById: Map<string, Circle> = new Map()
   private grid: SpatialGrid
-  /** Monotonic counter ensuring every event has a unique comparator key */
+  /** Monotonic counter ensuring deterministic event ordering */
   private nextSeq: number = 0
 
   constructor(tableWidth: number, tableHeight: number, circles: Circle[]) {
-    // Primary sort by time, tiebreak by insertion order (seq).
-    // The seq tiebreaker is required — bintrees silently drops inserts when
-    // the comparator returns 0. See class-level docs.
-    const tree = new RBTree<TreeEvent>(function (a, b) {
-      return a.time - b.time || a.seq - b.seq
-    })
-
-    this.tree = tree
+    this.heap = new MinHeap<TreeEvent>()
     this.tableWidth = tableWidth
     this.tableHeight = tableHeight
     this.circles = circles
@@ -210,7 +203,7 @@ export class CollisionFinder {
     for (const circle of this.circles) {
       const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, circle)
       cushionCollision.seq = this.nextSeq++
-      this.tree.insert(cushionCollision)
+      this.heap.push(cushionCollision)
 
       const neighbors = this.grid.getNearbyCircles(circle)
       for (const neighbor of neighbors) {
@@ -224,7 +217,7 @@ export class CollisionFinder {
             epochs: [circle.epoch, neighbor.epoch],
             seq: this.nextSeq++,
           }
-          this.tree.insert(collision)
+          this.heap.push(collision)
         }
       }
 
@@ -243,7 +236,7 @@ export class CollisionFinder {
         epochs: [circle.epoch],
         seq: this.nextSeq++,
       }
-      this.tree.insert(event)
+      this.heap.push(event)
     }
   }
 
@@ -255,8 +248,7 @@ export class CollisionFinder {
    */
   pop(): Collision {
     for (;;) {
-      const next = this.tree.min()!
-      this.tree.remove(next)
+      const next = this.heap.pop()!
 
       // Skip stale events whose circles have been involved in a collision
       // since this event was created (epoch mismatch)
@@ -279,7 +271,7 @@ export class CollisionFinder {
               epochs: [circle.epoch, neighbor.epoch],
               seq: this.nextSeq++,
             }
-            this.tree.insert(collision)
+            this.heap.push(collision)
           }
         }
         continue
@@ -306,7 +298,7 @@ export class CollisionFinder {
 
     const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
     cushionCollision.seq = this.nextSeq++
-    this.tree.insert(cushionCollision)
+    this.heap.push(cushionCollision)
 
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
     for (const neighbor of neighbors) {
@@ -319,7 +311,7 @@ export class CollisionFinder {
           epochs: [referenceCircle.epoch, neighbor.epoch],
           seq: this.nextSeq++,
         }
-        this.tree.insert(collision)
+        this.heap.push(collision)
       }
     }
 
