@@ -55,11 +55,12 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   const v1 = circleA.velocity
   const v2 = circleB.velocity
 
-  // since both circles could be in different relative times,
-  // we need to move initial position into the same frame of reference
-
-  const posA = circleA.positionAtTime(circleB.time)
-  const posB = circleB.position
+  // Project both circles to the later of their two times.
+  // This ensures we only project forward (physically valid) and avoids
+  // false overlap detection when circles are at different timestamps.
+  const refTime = Math.max(circleA.time, circleB.time)
+  const posA = circleA.positionAtTime(refTime)
+  const posB = circleB.positionAtTime(refTime)
 
   const radiusA = circleA.radius
   const radiusB = circleB.radius
@@ -104,11 +105,11 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
 
   if (res1 < res2) {
     if (!isNaN(res1) && res1 > 0) {
-      return res1 + circleB.time
+      return res1 + refTime
     }
   } else {
     if (!isNaN(res2) && res2 > 0) {
-      return res2 + circleB.time
+      return res2 + refTime
     }
   }
 
