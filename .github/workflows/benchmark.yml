@@ -29,6 +29,18 @@ jobs:
         run: npm run benchmark:json -- --output pr-results.json
         timeout-minutes: 15
 
+      - name: Print PR benchmark results
+        run: |
+          echo "=== PR Benchmark Results ==="
+          cat pr-results.json | node -e "
+            const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+            console.log('');
+            for (const b of r) {
+              console.log(b.name.padEnd(25) + (1000/b.mean).toFixed(2).padStart(10) + ' ops/sec  ±' + b.margin.toFixed(2) + '%  (' + b.samples + ' samples)  mean=' + b.mean.toFixed(2) + 'ms');
+            }
+            console.log('');
+          "
+
       - name: Determine merge base
         id: merge-base
         run: |
@@ -47,6 +59,19 @@ jobs:
         run: npm run benchmark:json -- --output baseline-results.json
         timeout-minutes: 15
         continue-on-error: true
+
+      - name: Print baseline benchmark results
+        if: steps.baseline.outcome == 'success'
+        run: |
+          echo "=== Baseline Benchmark Results ==="
+          cat baseline-results.json | node -e "
+            const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+            console.log('');
+            for (const b of r) {
+              console.log(b.name.padEnd(25) + (1000/b.mean).toFixed(2).padStart(10) + ' ops/sec  ±' + b.margin.toFixed(2) + '%  (' + b.samples + ' samples)  mean=' + b.mean.toFixed(2) + 'ms');
+            }
+            console.log('');
+          "
 
       - name: Checkout PR (for comparison script)
         run: git checkout ${{ github.head_ref || github.sha }}
