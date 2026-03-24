@@ -1,6 +1,8 @@
 import Vector2D from './vector2d'
 
 export default class Circle {
+  epoch: number = 0
+
   constructor(
     public position: Vector2D,
     public velocity: Vector2D,

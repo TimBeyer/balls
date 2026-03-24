@@ -14,6 +14,7 @@ export interface Collision {
   type: 'Circle' | 'Cushion'
   circles: Circle[]
   time: number
+  epochs: number[]
 }
 
 export interface CircleCollision extends Collision {
@@ -30,6 +31,7 @@ export interface CellTransitionEvent {
   time: number
   circles: [Circle]
   toCell: number
+  epochs: [number]
 }
 
 export type TreeEvent = Collision | CellTransitionEvent
@@ -48,6 +50,7 @@ export function getCushionCollision(tableWidth: number, tableHeight: number, cir
     circles: [circle],
     cushion: cushions[result.index],
     time: result.dt + circle.time,
+    epochs: [circle.epoch],
   }
 }
 
@@ -116,43 +119,14 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   return undefined
 }
 
-class RelationStore {
-  private entityStores: Map<string, Set<TreeEvent>> = new Map()
-
-  add(keys: string[], entities: TreeEvent[]) {
-    for (const key of keys) {
-      const entityStore = this.entityStores.get(key) || new Set()
-      for (const entity of entities) {
-        entityStore.add(entity)
-      }
-      this.entityStores.set(key, entityStore)
-    }
+function isEventValid(event: TreeEvent): boolean {
+  for (let i = 0; i < event.circles.length; i++) {
+    if (event.circles[i].epoch !== event.epochs[i]) return false
   }
-
-  get(keys: string[]): TreeEvent[] {
-    const allEntities = new Set<TreeEvent>()
-
-    for (const key of keys) {
-      const entityStore = this.entityStores.get(key)
-      if (entityStore) {
-        for (const entity of entityStore.values()) {
-          allEntities.add(entity)
-        }
-      }
-    }
-
-    return Array.from(allEntities)
-  }
-
-  delete(keys: string[]) {
-    for (const key of keys) {
-      this.entityStores.delete(key)
-    }
-  }
+  return true
 }
 
 export class CollisionFinder {
-  private uuidToCollision: RelationStore = new RelationStore()
   private tree: RBTree<TreeEvent>
   private tableWidth: number
   private tableHeight: number
@@ -182,7 +156,6 @@ export class CollisionFinder {
 
     for (const circle of this.circles) {
       const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, circle)
-      this.uuidToCollision.add([circle.id], [cushionCollision])
       this.tree.insert(cushionCollision)
 
       const neighbors = this.grid.getNearbyCircles(circle)
@@ -194,9 +167,9 @@ export class CollisionFinder {
             type: 'Circle',
             time,
             circles: [circle, neighbor],
+            epochs: [circle.epoch, neighbor.epoch],
           }
           this.tree.insert(collision)
-          this.uuidToCollision.add([circle.id, neighbor.id], [collision])
         }
       }
 
@@ -212,9 +185,9 @@ export class CollisionFinder {
         time: transition.time,
         circles: [circle],
         toCell: transition.toCell,
+        epochs: [circle.epoch],
       }
       this.tree.insert(event)
-      this.uuidToCollision.add([circle.id], [event])
     }
   }
 
@@ -222,6 +195,8 @@ export class CollisionFinder {
     for (;;) {
       const next = this.tree.min()!
       this.tree.remove(next)
+
+      if (!isEventValid(next)) continue
 
       if (next.type === 'CellTransition') {
         const event = next as CellTransitionEvent
@@ -237,21 +212,17 @@ export class CollisionFinder {
               type: 'Circle',
               time,
               circles: [circle, neighbor],
+              epochs: [circle.epoch, neighbor.epoch],
             }
             this.tree.insert(collision)
-            this.uuidToCollision.add([circle.id, neighbor.id], [collision])
           }
         }
         continue
       }
 
+      // Invalidate epochs for involved circles so their stale events are skipped
       for (const circle of next.circles) {
-        const events = this.uuidToCollision.get([circle.id])
-        this.uuidToCollision.delete([circle.id])
-
-        for (const event of events) {
-          this.tree.remove(event)
-        }
+        circle.epoch++
       }
 
       return next as Collision
@@ -262,7 +233,6 @@ export class CollisionFinder {
     const referenceCircle = this.circlesById.get(circleId)!
 
     const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
-    this.uuidToCollision.add([referenceCircle.id], [cushionCollision])
     this.tree.insert(cushionCollision)
 
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
@@ -273,9 +243,9 @@ export class CollisionFinder {
           type: 'Circle',
           time,
           circles: [referenceCircle, neighbor],
+          epochs: [referenceCircle.epoch, neighbor.epoch],
         }
         this.tree.insert(collision)
-        this.uuidToCollision.add([neighbor.id, referenceCircle.id], [collision])
       }
     }
 
