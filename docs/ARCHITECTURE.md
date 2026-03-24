@@ -7,7 +7,7 @@ Most physics simulations use **delta-time stepping**: advance all objects by a f
 This simulation uses an **analytical event-driven** approach:
 
 1. **Compute exact collision times** using closed-form equations
-2. **Store all predicted collisions** in a priority queue (Red-Black Tree with epoch-based invalidation)
+2. **Store all predicted collisions** in a priority queue (binary min-heap with epoch-based invalidation)
 3. **Process events in chronological order** — no fixed timestep
 4. **Between events**, all motion is uniform (constant velocity) and positions are computed exactly via `position + velocity * (t - t₀)`
 
@@ -21,7 +21,7 @@ The result is mathematically exact collision detection with zero tunneling, inde
 │                              │          │                                  │
 │  randomCircle() generation   │◄─────── │  INITIALIZE_SIMULATION           │
 │  simulate() loop             │◄─────── │  REQUEST_SIMULATION_DATA         │
-│  CollisionFinder (RBTree)    │          │                                  │
+│  CollisionFinder (MinHeap)   │          │                                  │
 │                              │ ───────► │  ReplayData[] buffer             │
 │  Runs entirely off main      │          │  requestAnimationFrame loop      │
 │  thread for responsiveness   │          │  Three.js 3D scene               │
@@ -38,7 +38,7 @@ The result is mathematically exact collision detection with zero tunneling, inde
 1. Record initial state snapshot (EventType.StateUpdate)
 2. Create CollisionFinder with all circles
 3. While currentTime < endTime:
-   a. Pop earliest valid collision from RBTree (stale events skipped via epoch check)
+   a. Pop earliest valid collision from min-heap (stale events skipped via epoch check)
    b. Advance only involved circles to collision.time (absolute time)
    c. Apply collision response (cushion or circle-circle)
    d. Record ReplayData snapshot of affected circles
@@ -129,7 +129,7 @@ Tangent components are preserved (no friction). All masses are currently equal (
 
 ### Data Structures
 
-- **`RBTree<TreeEvent>`**: Red-Black Tree ordered by `(time, seq)`. O(log n) insert, O(log n) remove, O(1) min access.
+- **`MinHeap<TreeEvent>`**: Array-backed binary min-heap ordered by `(time, seq)`. O(log n) insert, O(log n) pop, O(1) peek. Cache-friendly compared to the previous RBTree, and since epoch-based invalidation removes the need for arbitrary `remove()`, a heap is a natural fit.
 - **`SpatialGrid`**: Hash grid (cell size = 4 × radius) for neighbor lookups. Limits collision pair checks to a 3×3 cell neighborhood instead of all O(n²) pairs.
 - **`Circle.epoch`**: Per-circle invalidation counter. Incremented whenever the circle is involved in a collision. Used to lazily skip stale events.
 
@@ -153,26 +153,19 @@ Stale event encountered (pop() loop):
 
 **Stale event lifetime:** Stale events are not removed eagerly — they remain in the tree until they naturally reach the front of the queue and are popped and discarded. Each stale event is popped exactly once, so they drain at the rate they are created. The tree is somewhat larger than with eager removal, but the per-collision cost drops from O(k log n) to O(1).
 
-### RBTree Sequence Tiebreaker
+### Sequence Tiebreaker
 
-`bintrees` RBTree **silently drops inserts when the comparator returns 0** (no duplicate keys allowed). This is a critical constraint because:
-
-1. `recompute(A)` and `recompute(B)` both predict the A-B collision. The quadratic formula is symmetric (`getCircleCollisionTime(A,B) === getCircleCollisionTime(B,A)`), so both events have **identical times**.
-2. Stale events lingering in the tree may share a time with newly inserted valid events.
-
-Without unique keys, valid collision predictions are silently lost, causing balls to tunnel through each other.
-
-**Fix:** Every event gets a monotonically increasing `seq` number. The comparator is:
+Every event gets a monotonically increasing `seq` number. The heap orders by `(time, seq)`:
 
 ```typescript
-(a, b) => a.time - b.time || a.seq - b.seq
+a.time - b.time || a.seq - b.seq
 ```
 
-This guarantees every event has a unique comparator value, so no inserts are ever dropped.
+This ensures deterministic ordering when multiple events share the same time (common: `recompute(A)` and `recompute(B)` both predict the A-B collision with the same time since the quadratic is symmetric). Unlike the previous RBTree (which silently dropped duplicate keys), the MinHeap allows duplicate times, so `seq` is not required for correctness — but it preserves reproducible simulation results.
 
 ### Operations
 
-**`initialize()`**: For each circle, compute cushion collision time and circle-circle collision times with spatial grid neighbors. Insert into tree with epoch snapshots. Uses `circle.id >= neighbor.id` to skip duplicate pairs during init. Complexity: O(n·k·log n) where k = average neighbors per cell.
+**`initialize()`**: For each circle, compute cushion collision time and circle-circle collision times with spatial grid neighbors. Insert into heap with epoch snapshots. Uses `circle.id >= neighbor.id` to skip duplicate pairs during init. Complexity: O(n·k·log n) where k = average neighbors per cell.
 
 **`pop()`**: Extract-min loop that skips stale events (epoch mismatch) and handles cell transitions internally. When a valid collision is found, increments involved circles' epochs and returns. The caller must then apply physics and call `recompute()`.
 
@@ -324,9 +317,10 @@ UI is built with Tweakpane (`src/lib/ui.ts`). Parameters are divided into:
 
 **Spatial Grid Tuning**
 - `CollisionFinder.recompute()` tests against spatial grid neighbors (3×3 cell neighborhood), not all n circles.
-- Current cell size is `4 × radius` (150mm). Tuning this or using delta-neighbor computation on cell transitions could further reduce work.
-- Replacing the `bintrees` RBTree with a binary min-heap (array-backed) would improve constant factors ~2-5× due to cache locality, especially since lazy invalidation removes the need for arbitrary `remove()`.
-- At 500+ balls, the O(k²) neighbor recomputation still dominates. Further improvements: smarter recomputation scope, cell transition batching.
+- Current cell size is `4 × radius` (150mm). Larger cell sizes (6×) were tried but increased neighbor counts enough to cause a ~2× regression at high ball counts.
+- Delta-neighbor optimization (only checking new cells on cell transitions) was tried but had a correctness bug: predictions for circles in overlapping cells could be invalidated by third-party collisions without being recreated.
+- Cell transition batching (scheduling 5 transitions at once) was tried but regressed performance, likely due to increased queue size and stale event overhead.
+- At 500+ balls, the O(k²) neighbor recomputation still dominates.
 
 **Transferable Objects for Worker Communication**
 - `ReplayData[]` is serialized via structured clone (deep copy).
@@ -340,14 +334,7 @@ UI is built with Tweakpane (`src/lib/ui.ts`). Parameters are divided into:
 
 ### Code Quality
 
-**Fix `isInitialized` Bug**
-- `simulation.worker.ts` line 8: change `const isInitialized = false` to `let isInitialized = false` and set to `true` after initialization.
-
-**Wire Up Benchmarks**
-- Add `"bench": "tsx src/benchmark.ts"` (or similar) to `package.json` scripts.
-
 **Expand Test Coverage**
-- Simulation end-to-end: verify energy conservation (sum of kinetic energies unchanged after collision), verify all balls stay within table bounds.
 - `CollisionFinder.recompute()`: verify that after recomputation, the next collision time is correct.
 - Edge cases: two balls with identical position at generation, zero-velocity balls, single ball bouncing between walls.
 
