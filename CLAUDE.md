@@ -83,7 +83,8 @@ src/
     │   └── simulation-scene.ts      # Three.js 3D scene, lights, camera
     └── __tests__/
         ├── circle.test.ts           # Circle class unit tests
-        └── collision.test.ts        # Collision detection unit tests
+        ├── collision.test.ts        # Collision detection unit tests
+        └── spatial-grid.test.ts     # Spatial grid unit tests
 ```
 
 ## Testing
@@ -94,7 +95,6 @@ Current coverage: `Circle` class (position, velocity, time advancement) and coll
 
 ## Known Gotchas
 
-- **`isInitialized` bug**: In `simulation.worker.ts` line 8, `const isInitialized = false` is never set to `true`. The re-initialization guard on line 39 never triggers. Not a runtime issue since workers are terminated and recreated on restart.
 - **O(n) recomputation**: `CollisionFinder.recompute()` tests the affected circle against ALL other circles. Scales as O(k*n) per collision event where k = involved circles. Becomes a bottleneck at 500+ balls.
 - **Hardcoded mass**: All balls have mass 100 (`circle.ts` default, `index.ts` line 114). The collision math supports different masses but the system never varies them.
 - **Ball radius hardcoded**: 37.5mm in `simulation.worker.ts` line 16, not configurable via `SimulationConfig`.
