@@ -15,6 +15,7 @@ export interface Collision {
   circles: Circle[]
   time: number
   epochs: number[]
+  seq: number
 }
 
 export interface CircleCollision extends Collision {
@@ -32,6 +33,7 @@ export interface CellTransitionEvent {
   circles: [Circle]
   toCell: number
   epochs: [number]
+  seq: number
 }
 
 export type TreeEvent = Collision | CellTransitionEvent
@@ -51,6 +53,7 @@ export function getCushionCollision(tableWidth: number, tableHeight: number, cir
     cushion: cushions[result.index],
     time: result.dt + circle.time,
     epochs: [circle.epoch],
+    seq: 0,
   }
 }
 
@@ -133,10 +136,11 @@ export class CollisionFinder {
   private circles: Circle[]
   private circlesById: Map<string, Circle> = new Map()
   private grid: SpatialGrid
+  private nextSeq: number = 0
 
   constructor(tableWidth: number, tableHeight: number, circles: Circle[]) {
     const tree = new RBTree<TreeEvent>(function (a, b) {
-      return a.time - b.time
+      return a.time - b.time || a.seq - b.seq
     })
 
     this.tree = tree
@@ -156,6 +160,7 @@ export class CollisionFinder {
 
     for (const circle of this.circles) {
       const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, circle)
+      cushionCollision.seq = this.nextSeq++
       this.tree.insert(cushionCollision)
 
       const neighbors = this.grid.getNearbyCircles(circle)
@@ -168,6 +173,7 @@ export class CollisionFinder {
             time,
             circles: [circle, neighbor],
             epochs: [circle.epoch, neighbor.epoch],
+            seq: this.nextSeq++,
           }
           this.tree.insert(collision)
         }
@@ -186,6 +192,7 @@ export class CollisionFinder {
         circles: [circle],
         toCell: transition.toCell,
         epochs: [circle.epoch],
+        seq: this.nextSeq++,
       }
       this.tree.insert(event)
     }
@@ -213,6 +220,7 @@ export class CollisionFinder {
               time,
               circles: [circle, neighbor],
               epochs: [circle.epoch, neighbor.epoch],
+              seq: this.nextSeq++,
             }
             this.tree.insert(collision)
           }
@@ -233,6 +241,7 @@ export class CollisionFinder {
     const referenceCircle = this.circlesById.get(circleId)!
 
     const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
+    cushionCollision.seq = this.nextSeq++
     this.tree.insert(cushionCollision)
 
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
@@ -244,6 +253,7 @@ export class CollisionFinder {
           time,
           circles: [referenceCircle, neighbor],
           epochs: [referenceCircle.epoch, neighbor.epoch],
+          seq: this.nextSeq++,
         }
         this.tree.insert(collision)
       }
