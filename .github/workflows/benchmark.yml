@@ -101,7 +101,7 @@ jobs:
             cat comment-body.md
             echo ""
             echo "---"
-            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
+            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | PR commit: \`$(echo ${{ github.event.pull_request.head.sha }} | cut -c1-7)\` | Updated: $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
           } > comment.md
 
       - name: Post or update PR comment
