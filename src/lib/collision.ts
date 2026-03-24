@@ -1,7 +1,6 @@
 import Circle from './circle'
 import { MinHeap } from './min-heap'
 import { SpatialGrid } from './spatial-grid'
-import { earliestBoundaryCrossing } from './motion'
 
 export enum Cushion {
   North = 'NORTH',
@@ -46,20 +45,35 @@ export interface CellTransitionEvent {
 
 export type TreeEvent = Collision | CellTransitionEvent
 
+const CUSHIONS = [Cushion.North, Cushion.East, Cushion.South, Cushion.West] as const
+
 export function getCushionCollision(tableWidth: number, tableHeight: number, circle: Circle): CushionCollision {
-  const cushions = [Cushion.North, Cushion.East, Cushion.South, Cushion.West]
-  const result = earliestBoundaryCrossing([
-    { position: circle.position[1], velocity: circle.velocity[1], target: tableHeight - circle.radius },
-    { position: circle.position[0], velocity: circle.velocity[0], target: tableWidth - circle.radius },
-    { position: circle.position[1], velocity: circle.velocity[1], target: circle.radius },
-    { position: circle.position[0], velocity: circle.velocity[0], target: circle.radius },
-  ])!
+  const px = circle.position[0]
+  const py = circle.position[1]
+  const vx = circle.velocity[0]
+  const vy = circle.velocity[1]
+  const r = circle.radius
+
+  // Inline boundary crossing: compute time to each wall, pick earliest positive.
+  // Avoids allocating LinearBoundary objects and arrays on every call.
+  let minDt = Infinity
+  let bestIdx = 0
+  let dt: number
+
+  dt = (tableHeight - r - py) / vy // North
+  if (dt > Number.EPSILON && dt < minDt) { minDt = dt; bestIdx = 0 }
+  dt = (tableWidth - r - px) / vx // East
+  if (dt > Number.EPSILON && dt < minDt) { minDt = dt; bestIdx = 1 }
+  dt = (r - py) / vy // South
+  if (dt > Number.EPSILON && dt < minDt) { minDt = dt; bestIdx = 2 }
+  dt = (r - px) / vx // West
+  if (dt > Number.EPSILON && dt < minDt) { minDt = dt; bestIdx = 3 }
 
   return {
     type: 'Cushion',
     circles: [circle],
-    cushion: cushions[result.index],
-    time: result.dt + circle.time,
+    cushion: CUSHIONS[bestIdx],
+    time: minDt + circle.time,
     epochs: [circle.epoch],
     seq: 0,
   }
@@ -70,27 +84,24 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   const v2 = circleB.velocity
 
   // Project both circles to the later of their two times.
-  // This ensures we only project forward (physically valid) and avoids
-  // false overlap detection when circles are at different timestamps.
+  // Inlined positionAtTime() to avoid allocating two Vector2D tuples per pair check.
   const refTime = Math.max(circleA.time, circleB.time)
-  const posA = circleA.positionAtTime(refTime)
-  const posB = circleB.positionAtTime(refTime)
+  const dtA = refTime - circleA.time
+  const dtB = refTime - circleB.time
+  const posAx = circleA.position[0] + v1[0] * dtA
+  const posAy = circleA.position[1] + v1[1] * dtA
+  const posBx = circleB.position[0] + v2[0] * dtB
+  const posBy = circleB.position[1] + v2[1] * dtB
 
   const radiusA = circleA.radius
   const radiusB = circleB.radius
 
-  /*
-   * We pretend that one of the circles is static and use it as the frame of reference
-   * We use the relative position and velocity
-   * to calculate a collision with the static circle then
-   */
-
-  // first calculate relative velocity
+  // Relative-frame collision detection: treat one circle as stationary,
+  // solve quadratic for when center distance equals r1 + r2.
   const vx = v1[0] - v2[0]
   const vy = v1[1] - v2[1]
-  // then relative position
-  const posX = posA[0] - posB[0]
-  const posY = posA[1] - posB[1]
+  const posX = posAx - posBx
+  const posY = posAy - posBy
 
   // if the circles are already colliding, do not detect it
   const distanceSquared = posX * posX + posY * posY

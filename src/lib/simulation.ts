@@ -123,8 +123,10 @@ export function simulate(tableWidth: number, tableHeight: number, time: number, 
       const c1Scale = v1LengthAfterCollision / v1Length
       const c2Scale = v2LengthAfterCollision / v2Length
 
-      c1.velocity = [vx1Collide * c1Scale + vx1Remainder, vy1Collide * c1Scale + vy1Remainder]
-      c2.velocity = [vx2Collide * c2Scale + vx2Remainder, vy2Collide * c2Scale + vy2Remainder]
+      c1.velocity[0] = vx1Collide * c1Scale + vx1Remainder
+      c1.velocity[1] = vy1Collide * c1Scale + vy1Remainder
+      c2.velocity[0] = vx2Collide * c2Scale + vx2Remainder
+      c2.velocity[1] = vy2Collide * c2Scale + vy2Remainder
     }
 
     currentTime = collision.time
