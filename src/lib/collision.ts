@@ -268,10 +268,14 @@ export class CollisionFinder {
       if (next.type === 'CellTransition') {
         const event = next as CellTransitionEvent
         const circle = event.circles[0]
+        const fromCell = this.grid.getCellOf(circle)
         this.grid.moveCircle(circle, event.toCell)
         this.scheduleNextCellTransition(circle)
 
-        const neighbors = this.grid.getNearbyCircles(circle)
+        // Only check circles in cells that are NEW to the 3x3 neighborhood.
+        // Circles in cells that were in both the old and new 3x3 already have
+        // valid collision predictions in the queue (epoch hasn't changed).
+        const neighbors = this.grid.getDeltaNeighbors(circle, fromCell)
         for (const neighbor of neighbors) {
           const time = getCircleCollisionTime(circle, neighbor)
           if (time) {
