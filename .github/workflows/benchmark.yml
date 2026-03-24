@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Run benchmarks (PR)
-        run: npm run benchmark:json > pr-results.json
+        run: npm run benchmark:json -- --output pr-results.json
         timeout-minutes: 15
 
       - name: Determine merge base
@@ -44,7 +44,7 @@ jobs:
 
       - name: Run benchmarks (baseline)
         id: baseline
-        run: npm run benchmark:json > baseline-results.json
+        run: npm run benchmark:json -- --output baseline-results.json
         timeout-minutes: 15
         continue-on-error: true
 
@@ -57,7 +57,7 @@ jobs:
       - name: Compare results
         id: compare
         run: |
-          if [ -f baseline-results.json ] && [ -f pr-results.json ]; then
+          if [ -f baseline-results.json ] && node -e "JSON.parse(require('fs').readFileSync('baseline-results.json','utf8'))" 2>/dev/null && [ -f pr-results.json ]; then
             npx tsx scripts/compare-benchmarks.ts baseline-results.json pr-results.json > comment-body.md
           else
             echo "## Benchmark Comparison" > comment-body.md
