@@ -13,8 +13,6 @@ export class SpatialGrid {
   private circleToCell: Map<string, number> = new Map()
   /** Reusable buffer for getNearbyCircles to avoid allocating a new array per call */
   private neighborBuf: Circle[] = []
-  /** Reusable buffer for getDeltaNeighbors to avoid allocating a new array per call */
-  private deltaBuf: Circle[] = []
 
   constructor(tableWidth: number, tableHeight: number, cellSize: number) {
     this.cellSize = cellSize
@@ -71,37 +69,6 @@ export class SpatialGrid {
         const nr = row + dr
         const nc = col + dc
         if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) continue
-        const cellCircles = this.cells[nr * this.cols + nc]
-        for (let i = 0; i < cellCircles.length; i++) {
-          if (cellCircles[i] !== circle) result.push(cellCircles[i])
-        }
-      }
-    }
-
-    return result
-  }
-
-  /**
-   * Returns circles in the new 3x3 neighborhood that were NOT in the old 3x3.
-   * Used after a cell transition to avoid redundant collision checks with neighbors
-   * that already have valid predictions in the event queue.
-   */
-  getDeltaNeighbors(circle: Circle, fromCell: number): Circle[] {
-    const toCell = this.circleToCell.get(circle.id)!
-    const toCol = toCell % this.cols
-    const toRow = Math.floor(toCell / this.cols)
-    const fromCol = fromCell % this.cols
-    const fromRow = Math.floor(fromCell / this.cols)
-    const result = this.deltaBuf
-    result.length = 0
-
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const nr = toRow + dr
-        const nc = toCol + dc
-        if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) continue
-        // Skip cells that were already in the old 3x3 neighborhood
-        if (Math.abs(nc - fromCol) <= 1 && Math.abs(nr - fromRow) <= 1) continue
         const cellCircles = this.cells[nr * this.cols + nc]
         for (let i = 0; i < cellCircles.length; i++) {
           if (cellCircles[i] !== circle) result.push(cellCircles[i])
