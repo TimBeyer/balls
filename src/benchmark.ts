@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { Bench } from 'tinybench'
 import Circle from './lib/circle'
 import { simulate } from './lib/simulation'
@@ -136,7 +137,13 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
   })
 
   if (jsonMode) {
-    console.log(JSON.stringify(results, null, 2))
+    const outputIdx = process.argv.indexOf('--output')
+    const json = JSON.stringify(results, null, 2)
+    if (outputIdx !== -1 && process.argv[outputIdx + 1]) {
+      writeFileSync(process.argv[outputIdx + 1], json + '\n')
+    } else {
+      console.log(json)
+    }
   } else {
     for (const r of results) {
       console.log(
