@@ -113,34 +113,26 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
     console.log('---')
   }
 
-  const warmupIterations = 1
-  const iterations = 5
-  const totalRuns = warmupIterations + iterations
-
-  // Pre-generate and pre-clone all circle sets (not timed)
+  // Pre-generate all circle sets (not timed)
   if (!jsonMode) console.log('Generating circle layouts...')
-  const circleRuns = new Map<string, Circle[][]>()
+  const circleSetups = new Map<string, Circle[]>()
   for (const c of CASES) {
     if (!jsonMode) console.log(`  ${c.name}: ${c.tableWidth}x${c.tableHeight}mm table`)
-    const base = generateCircles(c.numCircles, c.tableWidth, c.tableHeight, c.seed)
-    circleRuns.set(
-      c.name,
-      Array.from({ length: totalRuns }, () => cloneCircles(base)),
-    )
+    circleSetups.set(c.name, generateCircles(c.numCircles, c.tableWidth, c.tableHeight, c.seed))
   }
   if (!jsonMode) console.log('Done.\n')
 
   const bench = new Bench({
-    warmupIterations,
-    iterations,
+    warmupIterations: 1,
+    iterations: 5,
     time: 0,
   })
 
   for (const c of CASES) {
-    const runs = circleRuns.get(c.name)!
-    let runIndex = 0
+    const setupCircles = circleSetups.get(c.name)!
     bench.add(c.name, () => {
-      simulate(c.tableWidth, c.tableHeight, SIMULATION_TIME, runs[runIndex++])
+      const circles = cloneCircles(setupCircles)
+      simulate(c.tableWidth, c.tableHeight, SIMULATION_TIME, circles)
     })
   }
 
