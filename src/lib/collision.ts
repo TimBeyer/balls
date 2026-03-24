@@ -13,8 +13,15 @@ export enum Cushion {
 export interface Collision {
   type: 'Circle' | 'Cushion'
   circles: Circle[]
+  /** Absolute time when this collision is predicted to occur */
   time: number
+  /** Snapshot of each circle's epoch at event creation. If any circle's current
+   *  epoch differs from its recorded value, the event is stale and should be skipped.
+   *  See `isEventValid()` and the epoch-based invalidation docs in docs/ARCHITECTURE.md. */
   epochs: number[]
+  /** Unique sequence number for RBTree tiebreaking. bintrees RBTree silently drops
+   *  inserts when the comparator returns 0, so every event needs a unique key.
+   *  The comparator uses `time` as primary sort and `seq` as tiebreaker. */
   seq: number
 }
 
@@ -27,6 +34,8 @@ export interface CushionCollision extends Collision {
   cushion: Cushion
 }
 
+/** Scheduled when a circle is predicted to cross into an adjacent spatial grid cell.
+ *  Not returned by pop() — processed internally to update the grid and discover new neighbors. */
 export interface CellTransitionEvent {
   type: 'CellTransition'
   time: number
@@ -122,6 +131,12 @@ export function getCircleCollisionTime(circleA: Circle, circleB: Circle): number
   return undefined
 }
 
+/**
+ * Checks whether an event is still valid by comparing each circle's current epoch
+ * to the epoch recorded when the event was created. If any circle has been involved
+ * in a collision since then (epoch incremented), the event's prediction is based on
+ * outdated velocity/position and must be discarded.
+ */
 function isEventValid(event: TreeEvent): boolean {
   for (let i = 0; i < event.circles.length; i++) {
     if (event.circles[i].epoch !== event.epochs[i]) return false
@@ -129,6 +144,36 @@ function isEventValid(event: TreeEvent): boolean {
   return true
 }
 
+/**
+ * Manages all predicted collision events using an RBTree priority queue and a
+ * spatial grid for neighbor lookups.
+ *
+ * ## Epoch-based lazy invalidation
+ *
+ * When a collision fires, the involved circles' velocities change, invalidating
+ * any pending events that assumed the old trajectories. Rather than eagerly
+ * searching the tree and removing every affected event (the old RelationStore
+ * approach — O(k log n) per collision), we use a lazy scheme:
+ *
+ * 1. Each Circle has a monotonic `epoch` counter.
+ * 2. Every event records the epoch of each involved circle at creation time.
+ * 3. When pop() returns a collision, it increments the involved circles' epochs.
+ * 4. Stale events (epoch mismatch) are detected and skipped in O(1) by pop().
+ * 5. recompute() inserts fresh events stamped with the current epochs.
+ *
+ * Stale events remain in the tree but are drained naturally — each is popped
+ * and discarded exactly once. The tree is somewhat larger than with eager
+ * removal, but the per-collision cost drops from O(k log n) removals to O(1)
+ * epoch increments.
+ *
+ * ## RBTree seq tiebreaker
+ *
+ * bintrees RBTree silently drops inserts when the comparator returns 0 (no
+ * duplicate keys). Since recompute(A) and recompute(B) both predict the A-B
+ * collision with identical times (the quadratic is symmetric), a monotonic
+ * `seq` field is used as a tiebreaker: comparator is `time || seq`. This
+ * guarantees every event has a unique key.
+ */
 export class CollisionFinder {
   private tree: RBTree<TreeEvent>
   private tableWidth: number
@@ -136,9 +181,13 @@ export class CollisionFinder {
   private circles: Circle[]
   private circlesById: Map<string, Circle> = new Map()
   private grid: SpatialGrid
+  /** Monotonic counter ensuring every event has a unique comparator key */
   private nextSeq: number = 0
 
   constructor(tableWidth: number, tableHeight: number, circles: Circle[]) {
+    // Primary sort by time, tiebreak by insertion order (seq).
+    // The seq tiebreaker is required — bintrees silently drops inserts when
+    // the comparator returns 0. See class-level docs.
     const tree = new RBTree<TreeEvent>(function (a, b) {
       return a.time - b.time || a.seq - b.seq
     })
@@ -198,11 +247,19 @@ export class CollisionFinder {
     }
   }
 
+  /**
+   * Returns the next valid collision event in chronological order.
+   * Stale events (epoch mismatch) and cell transitions are consumed internally.
+   * After returning, the involved circles' epochs have been incremented —
+   * the caller must then apply physics and call recompute() for each circle.
+   */
   pop(): Collision {
     for (;;) {
       const next = this.tree.min()!
       this.tree.remove(next)
 
+      // Skip stale events whose circles have been involved in a collision
+      // since this event was created (epoch mismatch)
       if (!isEventValid(next)) continue
 
       if (next.type === 'CellTransition') {
@@ -237,6 +294,13 @@ export class CollisionFinder {
     }
   }
 
+  /**
+   * After a circle's velocity changes (collision response), predict its new
+   * cushion collision, circle-circle collisions with spatial grid neighbors,
+   * and next cell transition. All new events are stamped with current epochs.
+   * Old events for this circle are not removed — they will be lazily skipped
+   * via epoch mismatch in pop().
+   */
   recompute(circleId: string) {
     const referenceCircle = this.circlesById.get(circleId)!
 

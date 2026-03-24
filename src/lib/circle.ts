@@ -1,6 +1,11 @@
 import Vector2D from './vector2d'
 
 export default class Circle {
+  /**
+   * Invalidation counter for epoch-based lazy event filtering.
+   * Incremented each time this circle is involved in a collision (see CollisionFinder.pop()).
+   * Events stamped with a stale epoch are skipped without costly tree removal.
+   */
   epoch: number = 0
 
   constructor(

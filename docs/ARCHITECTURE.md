@@ -7,7 +7,7 @@ Most physics simulations use **delta-time stepping**: advance all objects by a f
 This simulation uses an **analytical event-driven** approach:
 
 1. **Compute exact collision times** using closed-form equations
-2. **Store all future collisions** in a priority queue (Red-Black Tree)
+2. **Store all predicted collisions** in a priority queue (Red-Black Tree with epoch-based invalidation)
 3. **Process events in chronological order** — no fixed timestep
 4. **Between events**, all motion is uniform (constant velocity) and positions are computed exactly via `position + velocity * (t - t₀)`
 
@@ -38,8 +38,8 @@ The result is mathematically exact collision detection with zero tunneling, inde
 1. Record initial state snapshot (EventType.StateUpdate)
 2. Create CollisionFinder with all circles
 3. While currentTime < endTime:
-   a. Pop earliest collision from RBTree
-   b. Advance ALL circles to collision.time (absolute time)
+   a. Pop earliest valid collision from RBTree (stale events skipped via epoch check)
+   b. Advance only involved circles to collision.time (absolute time)
    c. Apply collision response (cushion or circle-circle)
    d. Record ReplayData snapshot of affected circles
    e. Recompute future collisions for affected circles only
@@ -123,30 +123,69 @@ Solve via quadratic formula. Take the smallest positive root. If discriminant is
 
 Tangent components are preserved (no friction). All masses are currently equal (100), so this reduces to a velocity exchange along the normal.
 
-## Priority Queue and Recomputation
+## Priority Queue and Event Invalidation
 
 **File:** `src/lib/collision.ts` — `CollisionFinder`
 
 ### Data Structures
 
-- **`RBTree<Collision>`**: Red-Black Tree ordered by collision time. O(log n) insert, O(1) min access.
-- **`RelationStore<Collision>`**: Maps each circle ID to the set of `Collision` objects it participates in. Enables efficient cleanup when a collision invalidates future predictions.
+- **`RBTree<TreeEvent>`**: Red-Black Tree ordered by `(time, seq)`. O(log n) insert, O(log n) remove, O(1) min access.
+- **`SpatialGrid`**: Hash grid (cell size = 4 × radius) for neighbor lookups. Limits collision pair checks to a 3×3 cell neighborhood instead of all O(n²) pairs.
+- **`Circle.epoch`**: Per-circle invalidation counter. Incremented whenever the circle is involved in a collision. Used to lazily skip stale events.
+
+### Epoch-Based Lazy Invalidation
+
+When a collision changes a circle's velocity, all pending events for that circle are now based on a stale trajectory. Rather than eagerly finding and removing each stale event from the tree (the old `RelationStore` approach — O(k log n) per collision), we use a lazy scheme:
+
+```
+Event creation:
+  event.epochs = [circleA.epoch, circleB.epoch]   // snapshot current epochs
+
+Collision fires (pop()):
+  circleA.epoch++                                  // O(1) — invalidates all of A's old events
+  circleB.epoch++
+
+Stale event encountered (pop() loop):
+  if event.epochs[i] !== event.circles[i].epoch → skip   // O(1) check
+```
+
+**Why this works:** An event's collision time prediction is only valid if none of its circles have changed velocity since the prediction was made. Each velocity change (collision) increments the epoch, so a simple integer comparison detects staleness.
+
+**Stale event lifetime:** Stale events are not removed eagerly — they remain in the tree until they naturally reach the front of the queue and are popped and discarded. Each stale event is popped exactly once, so they drain at the rate they are created. The tree is somewhat larger than with eager removal, but the per-collision cost drops from O(k log n) to O(1).
+
+### RBTree Sequence Tiebreaker
+
+`bintrees` RBTree **silently drops inserts when the comparator returns 0** (no duplicate keys allowed). This is a critical constraint because:
+
+1. `recompute(A)` and `recompute(B)` both predict the A-B collision. The quadratic formula is symmetric (`getCircleCollisionTime(A,B) === getCircleCollisionTime(B,A)`), so both events have **identical times**.
+2. Stale events lingering in the tree may share a time with newly inserted valid events.
+
+Without unique keys, valid collision predictions are silently lost, causing balls to tunnel through each other.
+
+**Fix:** Every event gets a monotonically increasing `seq` number. The comparator is:
+
+```typescript
+(a, b) => a.time - b.time || a.seq - b.seq
+```
+
+This guarantees every event has a unique comparator value, so no inserts are ever dropped.
 
 ### Operations
 
-**`initialize()`**: For each pair of circles, compute collision time. For each circle, compute cushion collision time. Insert all valid collisions into the tree. Register in `RelationStore`. Complexity: O(n² log n).
+**`initialize()`**: For each circle, compute cushion collision time and circle-circle collision times with spatial grid neighbors. Insert into tree with epoch snapshots. Uses `circle.id >= neighbor.id` to skip duplicate pairs during init. Complexity: O(n·k·log n) where k = average neighbors per cell.
 
-**`pop()`**: Remove the minimum (earliest) collision. For each circle involved, look up ALL its collisions via `RelationStore`, remove them from the tree, and clear the relation store entries. This invalidates stale predictions.
+**`pop()`**: Extract-min loop that skips stale events (epoch mismatch) and handles cell transitions internally. When a valid collision is found, increments involved circles' epochs and returns. The caller must then apply physics and call `recompute()`.
 
-**`recompute(circleId)`**: After a collision changes a circle's velocity, compute its new cushion collision and test it against ALL other circles. Insert valid collisions into tree and relation store. Complexity: O(n) per call.
+**`recompute(circleId)`**: After a collision changes a circle's velocity, compute its new cushion collision and test it against spatial grid neighbors. Insert valid events stamped with current epochs. Old events are not removed — they will be lazily skipped via epoch mismatch. Complexity: O(k·log n) per call where k = spatial grid neighbors.
 
 ### Per-Event Cost
 
 Each collision event involves:
-- 1 `pop()`: O(k · c · log n) where k = involved circles, c = average collisions per circle
-- k `recompute()` calls: O(k · n · log n)
+- 1 `pop()`: O(s · log n) amortized, where s = stale events skipped (typically small)
+- k `recompute()` calls: O(k² · log n) where k = spatial grid neighbors per circle
+- k epoch increments: O(1) each
 
-For circle-circle collisions (k=2), total is O(n log n) per event.
+For circle-circle collisions (k=2), total is O(k · log n) per event plus amortized stale-event skipping. This is a significant improvement over the old eager approach which required O(k · c · log n) tree removals per collision where c = events per circle.
 
 ## Worker-Main Thread Protocol
 
@@ -283,10 +322,11 @@ UI is built with Tweakpane (`src/lib/ui.ts`). Parameters are divided into:
 
 ### Performance Improvements
 
-**Spatial Partitioning**
-- `CollisionFinder.recompute()` currently tests against ALL n circles — O(n) per recomputed circle.
-- A spatial hash grid (cell size = 2 × max_radius) or quad-tree would reduce average-case to O(√n).
-- Significant impact at high ball counts (500+). At 150 balls, current O(n) is fast enough.
+**Spatial Grid Tuning**
+- `CollisionFinder.recompute()` tests against spatial grid neighbors (3×3 cell neighborhood), not all n circles.
+- Current cell size is `4 × radius` (150mm). Tuning this or using delta-neighbor computation on cell transitions could further reduce work.
+- Replacing the `bintrees` RBTree with a binary min-heap (array-backed) would improve constant factors ~2-5× due to cache locality, especially since lazy invalidation removes the need for arbitrary `remove()`.
+- At 500+ balls, the O(k²) neighbor recomputation still dominates. Further improvements: smarter recomputation scope, cell transition batching.
 
 **Transferable Objects for Worker Communication**
 - `ReplayData[]` is serialized via structured clone (deep copy).
