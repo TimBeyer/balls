@@ -1,11 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import { Bench } from 'tinybench'
 import Circle from './lib/circle'
+import { generateCircles } from './lib/generate-circles'
 import { simulate } from './lib/simulation'
-import type Vector2D from './lib/vector2d'
 
-// Measurements in millimeters
-const RADIUS = 37.5
 const SIMULATION_TIME = 60000
 
 // --- Seeded PRNG (mulberry32) for deterministic benchmarks ---
@@ -17,56 +15,6 @@ function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
-}
-
-// Grid-based generation — reliable placement for any ball count
-function generateCircles(numCircles: number, tableWidth: number, tableHeight: number, seed: number): Circle[] {
-  const random = mulberry32(seed)
-  const gap = 10
-  const cellSize = RADIUS * 2 + gap
-  const maxJitter = gap / 2
-
-  const usableWidth = tableWidth - 2 * RADIUS
-  const usableHeight = tableHeight - 2 * RADIUS
-  const cols = Math.floor(usableWidth / cellSize)
-  const rows = Math.floor(usableHeight / cellSize)
-  const totalCells = rows * cols
-
-  // +1 to match legacy off-by-one (generates numCircles + 1 circles)
-  const count = numCircles + 1
-
-  if (count > totalCells) {
-    throw new Error(
-      `Table ${tableWidth}x${tableHeight}mm too small for ${numCircles} circles (grid has ${totalCells} cells, need ${count})`,
-    )
-  }
-
-  // Fisher-Yates shuffle to pick random cells
-  const cellIndices = Array.from({ length: totalCells }, (_, i) => i)
-  for (let i = totalCells - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1))
-    const tmp = cellIndices[i]
-    cellIndices[i] = cellIndices[j]
-    cellIndices[j] = tmp
-  }
-
-  const circles: Circle[] = []
-  for (let i = 0; i < count; i++) {
-    const cellIndex = cellIndices[i]
-    const row = Math.floor(cellIndex / cols)
-    const col = cellIndex % cols
-
-    const cx = RADIUS + col * cellSize + cellSize / 2
-    const cy = RADIUS + row * cellSize + cellSize / 2
-
-    const x = cx + (random() * 2 - 1) * maxJitter
-    const y = cy + (random() * 2 - 1) * maxJitter
-
-    const velocity: Vector2D = [random() * 0.7 - random() * 1.4, random() * 0.7 - random() * 1.4]
-    circles.push(new Circle([x, y], velocity, RADIUS, 0))
-  }
-
-  return circles
 }
 
 function cloneCircles(circles: Circle[]): Circle[] {
@@ -118,7 +66,7 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
   const circleSetups = new Map<string, Circle[]>()
   for (const c of CASES) {
     if (!jsonMode) console.log(`  ${c.name}: ${c.tableWidth}x${c.tableHeight}mm table`)
-    circleSetups.set(c.name, generateCircles(c.numCircles, c.tableWidth, c.tableHeight, c.seed))
+    circleSetups.set(c.name, generateCircles(c.numCircles, c.tableWidth, c.tableHeight, mulberry32(c.seed)))
   }
   if (!jsonMode) console.log('Done.\n')
 

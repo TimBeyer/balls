@@ -1,7 +1,8 @@
 import { isWorkerInitializationRequest, isWorkerSimulationRequest } from './worker-request'
 import { ResponseMessageType, WorkerInitializationResponse, WorkerSimulationResponse } from './worker-response'
-import Circle from './circle'
+import { generateCircles } from './generate-circles'
 import { simulate } from './simulation'
+import type Circle from './circle'
 
 declare const self: DedicatedWorkerGlobalScope
 
@@ -11,24 +12,6 @@ let TABLE_WIDTH = 0
 let NUM_BALLS = 0
 let circles: Circle[] = []
 let time = 0
-
-const randomCircle = function () {
-  const radius = 37.5
-
-  const x = Math.random() * (TABLE_WIDTH - 2 * radius) + radius
-  const y = Math.random() * (TABLE_HEIGHT - 2 * radius) + radius
-
-  const velocity: [number, number] = [
-    Math.random() * 0.7 - Math.random() * 1.4,
-    Math.random() * 0.7 - Math.random() * 1.4,
-  ]
-  return new Circle([x, y], velocity, radius, 0)
-}
-
-const circlesCollide = function (c1: Circle, c2: Circle): boolean {
-  const distance = Math.sqrt(Math.pow(c1.x - c2.x, 2) + Math.pow(c1.y - c2.y, 2))
-  return distance <= c1.radius + c2.radius
-}
 
 // Respond to message from parent thread
 self.addEventListener('message', (event: MessageEvent) => {
@@ -53,24 +36,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       NUM_BALLS = request.payload.numBalls
 
       console.time('initCircles')
-      // just brute force random generate a couple of non-overlapping circles instead of doing some fancy maths
-      while (circles.length <= NUM_BALLS) {
-        let currentCircle = randomCircle()
-        let circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
-        let attemptCount = 1
-        while (circleCollides) {
-          attemptCount += 1
-          currentCircle = randomCircle()
-          circleCollides = circles.some((circle) => circlesCollide(circle, currentCircle))
-
-          if (attemptCount > 5000) {
-            circles = []
-            attemptCount = 0
-          }
-        }
-
-        circles.push(currentCircle)
-      }
+      circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random)
       console.timeEnd('initCircles')
       const response: WorkerInitializationResponse = {
         type: ResponseMessageType.SIMULATION_INITIALIZED,
