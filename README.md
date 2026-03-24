@@ -1,84 +1,113 @@
-# Billiards Collision Simulation
+# Billiards
 
-An analytical event-driven billiards simulation with 3D (Three.js) and 2D (Canvas) rendering.
+A billiards simulation where every collision is solved exactly — no physics engine, no timestep approximation, just the quadratic formula and a priority queue.
 
-Collision times are computed exactly using closed-form equations (quadratic formula for circle-circle, linear for circle-cushion). Events are processed in strict chronological order from a priority queue. The rendering layer plays back pre-computed results — simulation and visualization are fully decoupled.
-
-## Getting Started
+Balls move on a 3D-rendered table with reflective materials, soft shadows, and a 2D overlay that lets you peek into the future: see predicted collision points, motion trails, and the next impact before it happens. The entire simulation runs ahead of what you see on screen, pre-computed in a Web Worker and played back frame-perfect.
 
 ```sh
 npm install
 npm run dev
 ```
 
-## Scripts
+## What makes this different
 
-| Command              | Description                        |
-| -------------------- | ---------------------------------- |
-| `npm run dev`        | Vite dev server with HMR           |
-| `npm run build`      | Production build to `dist/`        |
-| `npm run preview`    | Preview production build locally   |
-| `npm test`           | Run tests (Vitest, single run)     |
-| `npm run test:watch` | Run tests in watch mode            |
-| `npm run lint`       | ESLint check                       |
-| `npm run format`     | Prettier (write mode)              |
-| `npm run benchmark`  | Run performance benchmarks         |
+Most collision simulations step forward in small time increments and check for overlaps. This one doesn't step at all. Instead:
 
-## How It Works
+1. **Every collision time is computed analytically** — circle-circle uses the quadratic formula on relative velocity, cushion collisions use linear equations
+2. **Events are processed in exact chronological order** from a Red-Black Tree priority queue
+3. **Between collisions, positions are exact** — `position + velocity × Δt`, no accumulation of floating-point error
+4. **Simulation and rendering are fully decoupled** — a Web Worker solves physics ahead of time, the main thread just plays it back
+
+The result is a simulation that doesn't drift, doesn't tunnel, and doesn't slow down to maintain accuracy.
+
+## The visualization
+
+The scene layers a **Three.js 3D view** with a **Canvas 2D overlay**:
+
+<table>
+<tr><td>
+
+**3D layer**
+- PBR materials with environment-mapped reflections
+- Dual spotlights with PCF soft shadows
+- Interactive camera (orbit, zoom, pan)
+- Adjustable ball roughness and geometry detail
+
+</td><td>
+
+**2D overlay**
+- Color-coded ball indicators
+- Motion trails showing recent paths
+- Next-collision marker with connecting line
+- Future collision preview (up to 50 events ahead)
+
+</td></tr>
+</table>
+
+Everything is tweakable at runtime through a [Tweakpane](https://tweakpane.github.io/docs/) control panel — ball count (1–500), table dimensions, simulation speed, shadow quality, lighting angles, overlay toggles, and more. Most changes take effect immediately; a few (ball count, table size) require a restart.
+
+## Architecture
 
 ```
-[Web Worker]                         [Main Thread]
-  Generate circles (brute-force)       ← INITIALIZE_SIMULATION
-  simulate() loop                      ← REQUEST_SIMULATION_DATA
-  CollisionFinder (RBTree)
-  Stream ReplayData[] ──────────────→  Buffer events (PRECALC = 10s ahead)
-                                       requestAnimationFrame loop
-                                       Apply events at correct time
-                                       positionAtTime(t) interpolation
-                                       Three.js 3D scene + Canvas 2D overlay
-                                       Tweakpane UI controls
+  Web Worker                              Main Thread
+ ┌──────────────────────┐    events    ┌──────────────────────────┐
+ │ Generate circles     │─────────────→│ Buffer (10s ahead)       │
+ │ simulate() loop      │              │ requestAnimationFrame    │
+ │ CollisionFinder      │←─────────────│ Request more when low    │
+ │   (RBTree + epochs)  │   request    │ positionAtTime(t) interp │
+ └──────────────────────┘              │ Three.js + Canvas render │
+                                       │ Tweakpane UI             │
+                                       └──────────────────────────┘
 ```
 
-1. A **Web Worker** generates non-overlapping circles and runs the simulation, streaming replay events back to the main thread
-2. The **main thread** buffers events and plays them back via `requestAnimationFrame`, requesting more data when the buffer drops below 10 seconds
-3. Between events, circle positions are computed via `positionAtTime(t)` — exact constant-velocity interpolation, not an approximation
+The worker streams `ReplayData[]` events to the main thread, which buffers 10 seconds of simulation ahead of the current playback time. When the buffer runs low, it requests more. Between collision events, ball positions are computed with simple linear interpolation — this is exact, not an approximation, because velocity is constant between collisions.
 
-### Key Design Decisions
+<details>
+<summary><strong>Key implementation details</strong></summary>
 
-- **Analytical collision detection**: Circle-circle collisions use the quadratic formula on relative velocity; cushion collisions use linear equations. No iterative or approximate methods.
-- **Absolute time tracking**: Each circle tracks its own `time` field to avoid cumulative floating-point drift
-- **Epoch-based lazy invalidation**: Stale collision events are skipped at O(1) cost via epoch counters, avoiding expensive tree removals
-- **RBTree priority queue**: Collisions are sorted by `(time, seq)` with a sequence tiebreaker to prevent silent key collisions
+- **Absolute time per circle** — each ball tracks its own `time` field. `advanceTime(t)` computes position relative to that time, avoiding cumulative drift across thousands of collisions.
 
-## Project Structure
+- **Epoch-based lazy invalidation** — when a collision fires, involved balls increment their epoch counter. Stale predictions still sitting in the priority queue are skipped at O(1) cost when popped, avoiding expensive tree removals.
+
+- **RBTree sequence tiebreaker** — the `bintrees` RBTree silently drops inserts when the comparator returns 0. Every event carries a unique `seq` field so `(time, seq)` is always unique. Without this, simultaneous collisions get silently lost and balls tunnel through each other.
+
+- **Boundary snapping** — on cushion collision, position is forced to exactly `radius` from the wall. This prevents floating-point creep from gradually pushing balls outside the table.
+
+- **Relative-frame detection** — circle-circle collision math treats one circle as stationary, solves the quadratic on relative position/velocity. Both circles are projected to the same reference time first.
+
+</details>
+
+## Project structure
 
 ```
 src/
-├── index.ts                    # Entry point, animation loop, worker management
-├── benchmark.ts                # Performance benchmarking
+├── index.ts                 # Entry point, animation loop, worker comms
+├── benchmark.ts             # Performance benchmarking (tinybench)
 └── lib/
-    ├── circle.ts               # Circle class with absolute time tracking
-    ├── collision.ts            # CollisionFinder and collision math
-    ├── simulation.ts           # Core event-driven simulation engine
-    ├── simulation.worker.ts    # Web Worker for circle generation + simulation
-    ├── config.ts               # SimulationConfig interface + defaults
-    ├── ui.ts                   # Tweakpane UI controls
-    ├── vector2d.ts             # Vector2D = [number, number] tuple
-    ├── renderers/              # 2D Canvas renderers (circles, tails, collisions)
-    ├── scene/                  # Three.js 3D scene setup
-    └── __tests__/              # Vitest test suite
+    ├── circle.ts            # Circle with absolute time + epoch tracking
+    ├── collision.ts         # CollisionFinder, analytical collision math
+    ├── simulation.ts        # Event-driven simulation engine
+    ├── simulation.worker.ts # Web Worker: generation + simulation
+    ├── config.ts            # SimulationConfig defaults
+    ├── ui.ts                # Tweakpane control panel
+    ├── vector2d.ts          # Vector2D = [number, number]
+    ├── renderers/           # Canvas overlays (circles, tails, collisions)
+    ├── scene/               # Three.js scene, lights, camera, materials
+    └── __tests__/           # Vitest tests (circle, collision, simulation)
 ```
 
-## Tech Stack
+## Scripts
 
-- **TypeScript** (strict mode, ES2022)
-- **Three.js** for 3D WebGL rendering
-- **Canvas API** for 2D overlay rendering
-- **Web Workers** for off-thread simulation
-- **Vite** for dev server and builds
-- **Vitest** for testing
-- **Tweakpane** for runtime UI controls
-- **Cloudflare Workers** for deployment
+```sh
+npm run dev          # Vite dev server with HMR
+npm run build        # Production build → dist/
+npm run preview      # Preview production build
+npm test             # Vitest (single run)
+npm run test:watch   # Vitest (watch mode)
+npm run lint         # ESLint
+npm run format       # Prettier
+npm run benchmark    # Performance benchmarks
+```
 
 ## License
 
