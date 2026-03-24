@@ -95,14 +95,63 @@ jobs:
           fi
 
       - name: Build comment
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          MARKER="<!-- benchmark-results -->"
+          PR_SHORT=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+
+          # Build the new run section
           {
-            echo "<!-- benchmark-results -->"
             cat comment-body.md
             echo ""
             echo "---"
-            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | PR commit: \`$(echo ${{ github.event.pull_request.head.sha }} | cut -c1-7)\` | Updated: $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
-          } > comment.md
+            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | PR commit: \`${PR_SHORT}\` | ${TIMESTAMP}</sub>"
+          } > new-run.md
+
+          # Check for existing comment with previous runs
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            # Extract existing body
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              --jq '.body' > existing-comment.md
+
+            # Extract previous runs content (everything inside <details>, or the
+            # old top-level content if this is the first update)
+            PREV_MARKER="<!-- benchmark-previous -->"
+            if grep -q "${PREV_MARKER}" existing-comment.md; then
+              # Already has a history section — extract its contents
+              sed -n "/${PREV_MARKER}/,\$p" existing-comment.md | tail -n +2 > previous-runs.md
+            else
+              # First update — the entire old content (minus marker) becomes history
+              sed '1{/^<!-- benchmark-results -->/d;}' existing-comment.md > previous-runs.md
+            fi
+
+            # Build updated comment: marker + new run + flat history in collapsible section
+            {
+              echo "${MARKER}"
+              cat new-run.md
+              echo ""
+              echo ""
+              echo "${PREV_MARKER}"
+              echo "<details>"
+              echo "<summary>Previous runs</summary>"
+              echo ""
+              cat previous-runs.md
+              echo ""
+              echo "</details>"
+            } > comment.md
+          else
+            # First run — no history
+            {
+              echo "${MARKER}"
+              cat new-run.md
+            } > comment.md
+          fi
 
       - name: Post or update PR comment
         env:
