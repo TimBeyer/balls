@@ -56,7 +56,7 @@ async function runBenchmarks(): Promise<BenchmarkResult[]> {
 
   if (!jsonMode) {
     console.log(`Billiards Simulation Benchmark`)
-    console.log(`Ball radius: ${RADIUS}mm`)
+    console.log(`Ball radius: 37.5mm`)
     console.log(`Simulation time: ${SIMULATION_TIME / 1000}s per run`)
     console.log('---')
   }

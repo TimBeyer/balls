@@ -29,6 +29,18 @@ jobs:
         run: npm run benchmark:json -- --output pr-results.json
         timeout-minutes: 15
 
+      - name: Print PR benchmark results
+        run: |
+          echo "=== PR Benchmark Results ==="
+          cat pr-results.json | node -e "
+            const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+            console.log('');
+            for (const b of r) {
+              console.log(b.name.padEnd(25) + (1000/b.mean).toFixed(2).padStart(10) + ' ops/sec  ±' + b.margin.toFixed(2) + '%  (' + b.samples + ' samples)  mean=' + b.mean.toFixed(2) + 'ms');
+            }
+            console.log('');
+          "
+
       - name: Determine merge base
         id: merge-base
         run: |
@@ -47,6 +59,19 @@ jobs:
         run: npm run benchmark:json -- --output baseline-results.json
         timeout-minutes: 15
         continue-on-error: true
+
+      - name: Print baseline benchmark results
+        if: steps.baseline.outcome == 'success'
+        run: |
+          echo "=== Baseline Benchmark Results ==="
+          cat baseline-results.json | node -e "
+            const r = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+            console.log('');
+            for (const b of r) {
+              console.log(b.name.padEnd(25) + (1000/b.mean).toFixed(2).padStart(10) + ' ops/sec  ±' + b.margin.toFixed(2) + '%  (' + b.samples + ' samples)  mean=' + b.mean.toFixed(2) + 'ms');
+            }
+            console.log('');
+          "
 
       - name: Checkout PR (for comparison script)
         run: git checkout ${{ github.head_ref || github.sha }}
@@ -70,14 +95,68 @@ jobs:
           fi
 
       - name: Build comment
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          MARKER="<!-- benchmark-results -->"
+          PR_SHORT=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+
+          # Build the new run section
           {
-            echo "<!-- benchmark-results -->"
             cat comment-body.md
             echo ""
             echo "---"
-            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | $(date -u '+%Y-%m-%d %H:%M UTC')</sub>"
-          } > comment.md
+            echo "<sub>Merge base: \`${{ steps.merge-base.outputs.short }}\` | PR commit: \`${PR_SHORT}\` | ${TIMESTAMP}</sub>"
+          } > new-run.md
+
+          # Check for existing comment with previous runs
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            # Extract existing body
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              --jq '.body' > existing-comment.md
+
+            PREV_MARKER="<!-- benchmark-previous -->"
+            if grep -q "${PREV_MARKER}" existing-comment.md; then
+              # Has history — extract the old current run (between top marker and prev marker)
+              sed -n "2,/${PREV_MARKER}/{ /${PREV_MARKER}/d; p; }" existing-comment.md > old-current-run.md
+              # Extract inner content of old <details> (strip the wrapper tags)
+              sed -n "/${PREV_MARKER}/,\$p" existing-comment.md | tail -n +2 \
+                | sed '1{/^<details>/d;}' \
+                | sed '1{/^<summary>Previous runs<\/summary>/d;}' \
+                | sed '${/^<\/details>/d;}' > old-history.md
+            else
+              # First update — old content (minus marker) becomes the old current run
+              sed '1{/^<!-- benchmark-results -->/d;}' existing-comment.md > old-current-run.md
+              : > old-history.md
+            fi
+
+            # Build updated comment: new run on top, all previous runs flat in one <details>
+            {
+              echo "${MARKER}"
+              cat new-run.md
+              echo ""
+              echo ""
+              echo "${PREV_MARKER}"
+              echo "<details>"
+              echo "<summary>Previous runs</summary>"
+              echo ""
+              cat old-current-run.md
+              cat old-history.md
+              echo ""
+              echo "</details>"
+            } > comment.md
+          else
+            # First run — no history
+            {
+              echo "${MARKER}"
+              cat new-run.md
+            } > comment.md
+          fi
 
       - name: Post or update PR comment
         env:
