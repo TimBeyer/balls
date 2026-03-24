@@ -54,7 +54,7 @@ Deployment: Cloudflare Workers via `wrangler.jsonc`.
 - **Boundary snapping**: On cushion collision, position is forced to `radius` from the wall to prevent floating-point escape (`simulation.ts` lines 72-87).
 - **Relative-frame collision detection**: Circle-circle detection treats one circle as stationary, uses relative position/velocity to solve the quadratic. Both circles are projected to the same reference time first (`collision.ts` lines 86-89).
 - **Overlap guard**: If circles already overlap (`distance < r1 + r2`), collision detection returns `undefined` to prevent re-detecting the same collision (`collision.ts` line 111).
-- **MinHeap priority queue**: Collisions are stored in an array-backed binary min-heap sorted by `(time, seq)`. The `seq` tiebreaker ensures deterministic ordering when multiple events share the same time — unlike the old RBTree, the heap allows duplicate keys, so `seq` is not required for correctness but preserves reproducible results.
+- **MinHeap priority queue**: Collisions are stored in an array-backed binary min-heap sorted by `(time, seq)`. The `seq` tiebreaker ensures deterministic ordering when multiple events share the same time (common: symmetric quadratic gives identical times for both circles).
 - **Epoch-based lazy invalidation**: Instead of eagerly removing stale events from the heap, each `Circle` has an `epoch` counter. Events record the epoch of each involved circle at creation time. When a collision fires, involved circles' epochs are incremented. Stale events (epoch mismatch) are skipped in `pop()` at O(1) cost, avoiding expensive removals.
 
 ## Project Structure

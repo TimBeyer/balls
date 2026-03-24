@@ -69,7 +69,7 @@ The worker streams `ReplayData[]` events to the main thread, which buffers 10 se
 
 - **Epoch-based lazy invalidation** — when a collision fires, involved balls increment their epoch counter. Stale predictions still sitting in the min-heap are skipped at O(1) cost when popped, avoiding expensive removals.
 
-- **MinHeap sequence tiebreaker** — every event carries a monotonic `seq` field so the heap orders by `(time, seq)`. Unlike the old RBTree (which silently dropped duplicate keys), the min-heap allows duplicates — `seq` is not required for correctness but preserves deterministic, reproducible results.
+- **Sequence tiebreaker** — every event carries a monotonic `seq` field so the heap orders by `(time, seq)`, ensuring deterministic, reproducible results when multiple events share the same timestamp.
 
 - **Boundary snapping** — on cushion collision, position is forced to exactly `radius` from the wall. This prevents floating-point creep from gradually pushing balls outside the table.
 
