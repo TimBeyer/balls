@@ -5,8 +5,6 @@ import { simulate } from './lib/simulation'
 import type Vector2D from './lib/vector2d'
 
 // Measurements in millimeters
-const DEFAULT_TABLE_WIDTH = 2840
-const DEFAULT_TABLE_HEIGHT = 1420
 const RADIUS = 37.5
 const SIMULATION_TIME = 60000
 
@@ -21,47 +19,8 @@ function mulberry32(seed: number): () => number {
   }
 }
 
-// Legacy brute-force generation — kept for backward compatibility of original 5 cases
-function generateCirclesLegacy(numCircles: number, seed: number): Circle[] {
-  const random = mulberry32(seed)
-
-  const randomCircle = (): Circle => {
-    const x = random() * (DEFAULT_TABLE_WIDTH - 2 * RADIUS) + RADIUS
-    const y = random() * (DEFAULT_TABLE_HEIGHT - 2 * RADIUS) + RADIUS
-    const velocity: Vector2D = [random() * 0.7 - random() * 1.4, random() * 0.7 - random() * 1.4]
-    return new Circle([x, y], velocity, RADIUS, 0)
-  }
-
-  const circlesCollide = (c1: Circle, c2: Circle): boolean => {
-    const dx = c1.x - c2.x
-    const dy = c1.y - c2.y
-    const dist = c1.radius + c2.radius
-    return dx * dx + dy * dy <= dist * dist
-  }
-
-  let circles: Circle[] = []
-
-  while (circles.length <= numCircles) {
-    let currentCircle = randomCircle()
-    let collides = circles.some((c) => circlesCollide(c, currentCircle))
-    let attemptCount = 1
-    while (collides) {
-      attemptCount += 1
-      currentCircle = randomCircle()
-      collides = circles.some((c) => circlesCollide(c, currentCircle))
-      if (attemptCount > 5000) {
-        circles = []
-        attemptCount = 0
-      }
-    }
-    circles.push(currentCircle)
-  }
-
-  return circles
-}
-
-// Grid-based generation — reliable placement for any ball count with appropriately sized tables
-function generateCirclesGrid(numCircles: number, tableWidth: number, tableHeight: number, seed: number): Circle[] {
+// Grid-based generation — reliable placement for any ball count
+function generateCircles(numCircles: number, tableWidth: number, tableHeight: number, seed: number): Circle[] {
   const random = mulberry32(seed)
   const gap = 10
   const cellSize = RADIUS * 2 + gap
@@ -108,13 +67,6 @@ function generateCirclesGrid(numCircles: number, tableWidth: number, tableHeight
   }
 
   return circles
-}
-
-function generateCircles(numCircles: number, tableWidth: number, tableHeight: number, seed: number): Circle[] {
-  if (tableWidth === DEFAULT_TABLE_WIDTH && tableHeight === DEFAULT_TABLE_HEIGHT && numCircles <= 150) {
-    return generateCirclesLegacy(numCircles, seed)
-  }
-  return generateCirclesGrid(numCircles, tableWidth, tableHeight, seed)
 }
 
 function cloneCircles(circles: Circle[]): Circle[] {
