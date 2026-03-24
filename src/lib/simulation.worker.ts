@@ -6,7 +6,7 @@ import type Circle from './circle'
 
 declare const self: DedicatedWorkerGlobalScope
 
-const isInitialized = false
+let isInitialized = false
 let TABLE_HEIGHT = 0
 let TABLE_WIDTH = 0
 let NUM_BALLS = 0
@@ -38,6 +38,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       console.time('initCircles')
       circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random)
       console.timeEnd('initCircles')
+      isInitialized = true
       const response: WorkerInitializationResponse = {
         type: ResponseMessageType.SIMULATION_INITIALIZED,
         payload: {
