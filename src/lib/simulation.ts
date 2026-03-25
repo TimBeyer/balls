@@ -315,16 +315,21 @@ export function simulate(
       c2.velocity[0] = dx * v2NormalAfter + vx2Remainder
       c2.velocity[1] = dy * v2NormalAfter + vy2Remainder
 
-      // Enforce rolling constraint: reset angular velocity to match new velocity.
-      // Without this, residual spin from pre-collision rolling causes friction
-      // to re-accelerate the ball back toward its original speed.
+      // Reset angular velocity to rolling constraint and zero z-spin.
+      // Without this, residual spin from pre-collision state causes friction
+      // to re-accelerate the ball or keep it spinning indefinitely.
+      c1.velocity[2] = 0
+      c2.velocity[2] = 0
+
       const R1 = c1.radius
       c1.angularVelocity[0] = -c1.velocity[1] / R1
       c1.angularVelocity[1] = c1.velocity[0] / R1
+      c1.angularVelocity[2] = 0
 
       const R2 = c2.radius
       c2.angularVelocity[0] = -c2.velocity[1] / R2
       c2.angularVelocity[1] = c2.velocity[0] / R2
+      c2.angularVelocity[2] = 0
 
       c1.updateTrajectory(physicsConfig)
       c2.updateTrajectory(physicsConfig)

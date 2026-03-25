@@ -183,6 +183,104 @@ describe('simulate', () => {
     expect(dist).toBeCloseTo(R * 2, 0)
   })
 
+  it('moving ball transfers momentum to stationary ball', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    const moving = new Ball([300, 500], [800, 0], R, 0, params.mass, 'moving', [0, 0, 0], params, defaultPhysicsConfig)
+    const stationary = new Ball(
+      [300 + R * 2 + 50, 500],
+      [0, 0],
+      R,
+      0,
+      params.mass,
+      'stationary',
+      [0, 0, 0],
+      params,
+      defaultPhysicsConfig,
+    )
+
+    const replay = simulate(2840, 1420, 10, [moving, stationary], defaultPhysicsConfig)
+    const collisions = replay.filter((r) => r.type === EventType.CircleCollision)
+    expect(collisions.length).toBeGreaterThanOrEqual(1)
+
+    const first = collisions[0]
+    const movingSnap = first.snapshots.find((s) => s.id === 'moving')!
+    const stationarySnap = first.snapshots.find((s) => s.id === 'stationary')!
+
+    // Stationary ball must receive velocity in the +x direction
+    expect(stationarySnap.velocity[0]).toBeGreaterThan(100)
+    // Moving ball should have slowed down significantly
+    expect(movingSnap.velocity[0]).toBeLessThan(stationarySnap.velocity[0])
+  })
+
+  it('z-spin does not accumulate through ball-ball collisions', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    // Give ball significant z-spin (as if from a cushion bounce)
+    const spinner = new Ball(
+      [400, 700],
+      [600, 0],
+      R,
+      0,
+      params.mass,
+      'spinner',
+      [0, 0, 50], // large z-spin
+      params,
+      defaultPhysicsConfig,
+    )
+    const target = new Ball(
+      [400 + R * 2 + 30, 700],
+      [0, 0],
+      R,
+      0,
+      params.mass,
+      'target',
+      [0, 0, 0],
+      params,
+      defaultPhysicsConfig,
+    )
+
+    const replay = simulate(2840, 1420, 10, [spinner, target], defaultPhysicsConfig)
+    const collisions = replay.filter((r) => r.type === EventType.CircleCollision)
+    expect(collisions.length).toBeGreaterThanOrEqual(1)
+
+    // After collision, z-spin should be zeroed on both balls
+    const first = collisions[0]
+    for (const snap of first.snapshots) {
+      expect(snap.angularVelocity[2]).toBe(0)
+    }
+  })
+
+  it('total kinetic energy does not increase through collisions', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    const balls = [
+      new Ball([400, 500], [800, 200], R, 0, params.mass, 'a', [0, 0, 0], params, defaultPhysicsConfig),
+      new Ball([800, 500], [-400, 100], R, 0, params.mass, 'b', [0, 0, 0], params, defaultPhysicsConfig),
+      new Ball([600, 300], [100, 600], R, 0, params.mass, 'c', [0, 0, 0], params, defaultPhysicsConfig),
+    ]
+
+    const replay = simulate(2840, 1420, 30, balls, defaultPhysicsConfig)
+
+    // Compute kinetic energy at each event and verify it never increases
+    let prevKE = Infinity
+    for (const event of replay) {
+      if (event.type === EventType.CircleCollision) {
+        let ke = 0
+        for (const snap of event.snapshots) {
+          const speed2 = snap.velocity[0] ** 2 + snap.velocity[1] ** 2
+          ke += 0.5 * params.mass * speed2
+        }
+        // KE should not increase (with some tolerance for numerical precision)
+        // Note: we only check collision events where both balls are snapshotted
+        if (event.snapshots.length === 2) {
+          expect(ke).toBeLessThanOrEqual(prevKE * 1.01) // 1% tolerance
+          prevKE = ke
+        }
+      }
+    }
+  })
+
   it('balls eventually come to rest with friction', () => {
     const circles = [
       createTestBall([500, 500], [500, 300], 37.5, 0, defaultPhysicsConfig.defaultBallParams.mass, undefined),
