@@ -58,39 +58,54 @@ export function getCushionCollision(tableWidth: number, tableHeight: number, cir
   let minDt = Infinity
   let bestIdx = 0
 
-  // North wall: y = tableHeight - r
+  // For each wall, solve the quadratic and verify the ball is moving TOWARD the wall at dt.
+  // This prevents false detections when a ball is at the wall but moving away (dt≈0).
+
+  // North wall: y = tableHeight - r (ball must be moving in +y direction)
   const northRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - (tableHeight - r))
   for (const dt of northRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 0
+      const vy = 2 * traj.a[1] * dt + traj.b[1]
+      if (vy > 0) {
+        minDt = dt
+        bestIdx = 0
+      }
     }
   }
 
-  // East wall: x = tableWidth - r
+  // East wall: x = tableWidth - r (ball must be moving in +x direction)
   const eastRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - (tableWidth - r))
   for (const dt of eastRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 1
+      const vx = 2 * traj.a[0] * dt + traj.b[0]
+      if (vx > 0) {
+        minDt = dt
+        bestIdx = 1
+      }
     }
   }
 
-  // South wall: y = r
+  // South wall: y = r (ball must be moving in -y direction)
   const southRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - r)
   for (const dt of southRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 2
+      const vy = 2 * traj.a[1] * dt + traj.b[1]
+      if (vy < 0) {
+        minDt = dt
+        bestIdx = 2
+      }
     }
   }
 
-  // West wall: x = r
+  // West wall: x = r (ball must be moving in -x direction)
   const westRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - r)
   for (const dt of westRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 3
+      const vx = 2 * traj.a[0] * dt + traj.b[0]
+      if (vx < 0) {
+        minDt = dt
+        bestIdx = 3
+      }
     }
   }
 
@@ -318,9 +333,19 @@ export class CollisionFinder {
         const event = next as CellTransitionEvent
         const circle = event.circles[0]
 
-        // Advance circle to transition time so trajectory is re-based correctly
+        // Advance circle to transition time and rebase trajectory to new reference point.
+        // Do NOT call updateTrajectory — that re-determines motion state, which could
+        // prematurely switch e.g. Sliding→Rolling and corrupt collision detection.
         circle.advanceTime(event.time)
-        circle.updateTrajectory(this.physicsConfig)
+        circle.trajectory.c = [circle.position[0], circle.position[1], circle.position[2]]
+        circle.trajectory.b = [circle.velocity[0], circle.velocity[1], circle.velocity[2]]
+        // trajectory.a stays the same (acceleration unchanged within a motion state)
+        circle.angularTrajectory.omega0 = [
+          circle.angularVelocity[0],
+          circle.angularVelocity[1],
+          circle.angularVelocity[2],
+        ]
+        // angularTrajectory.alpha stays the same
 
         this.grid.moveCircle(circle, event.toCell)
         this.scheduleNextCellTransition(circle)
