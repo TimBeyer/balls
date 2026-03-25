@@ -33,10 +33,10 @@ class Ball {
   }
 
   renderAtTime(progress: number) {
-    const [x, y] = this.circle.positionAtTime(progress)
-    this.sphere.position.x = x - this.tableWidth / 2
-    this.sphere.position.y = this.radius
-    this.sphere.position.z = y - this.tableHeight / 2
+    const pos = this.circle.position3DAtTime(progress)
+    this.sphere.position.x = pos[0] - this.tableWidth / 2
+    this.sphere.position.y = this.radius + Math.max(0, pos[2])
+    this.sphere.position.z = pos[1] - this.tableHeight / 2
   }
 
   updateRoughness(roughness: number) {

@@ -37,5 +37,5 @@ export interface MotionModel {
   getTransitionTime(ball: Ball, config: PhysicsConfig): StateTransition | undefined
 
   /** Apply the state transition: zero velocity, enforce constraints, etc. */
-  applyTransition(ball: Ball, toState: MotionState): void
+  applyTransition(ball: Ball, toState: MotionState, config?: PhysicsConfig): void
 }

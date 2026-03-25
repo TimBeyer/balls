@@ -9,7 +9,8 @@ export interface BallPhysicsParams {
 
 export interface PhysicsConfig {
   gravity: number // mm/s^2 (9810 = 9.81 m/s^2 converted)
-  cushionHeight: number // mm, height of cushion contact point above table surface
+  cushionHeight: number // mm, height of cushion contact point above ball center
+  eTableRestitution: number // coefficient of restitution for ball-table bounce
   defaultBallParams: BallPhysicsParams
 }
 
@@ -30,5 +31,6 @@ export const defaultPhysicsConfig: PhysicsConfig = {
   // So cushionHeight = 47.6 - 37.5 ≈ 10.1mm above center.
   // This gives sinTheta ≈ 0.27, theta ≈ 15.5° — reasonable for the Han 2005 model.
   cushionHeight: 10.1,
+  eTableRestitution: 0.5,
   defaultBallParams,
 }

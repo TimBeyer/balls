@@ -1,11 +1,22 @@
 /**
  * Han 2005 cushion collision model.
  *
- * Accounts for cushion height, friction at cushion contact, and spin transfer.
- * The cushion contact point is above the ball center by `config.cushionHeight` mm.
- * This creates an angled impulse that transfers energy between linear and angular velocity.
+ * Reference: ekiefl.github.io/2020/04/24/pooltool-theory/
  *
- * Also handles post-collision effects:
+ * Coordinate system (per-cushion reference frame):
+ *   ref x = into cushion (perpendicular to wall)
+ *   ref y = along rail (parallel to wall)
+ *   ref z = vertical (up)
+ *
+ * The cushion contact point is above the ball center by `config.cushionHeight` mm.
+ * θ = arcsin(cushionHeight / R) defines the contact angle.
+ * This creates an angled impulse that transfers energy between linear and angular velocity,
+ * and can give the ball a vertical velocity component (ball jumps).
+ *
+ * Post-collision velocities and angular velocities are ABSOLUTE values (not deltas).
+ * Angular velocity is computed from the post-collision linear velocity.
+ *
+ * Also handles:
  * - Boundary snapping (prevent floating-point escape)
  * - Trajectory acceleration clamping (prevent spin pushing ball back through wall)
  */
@@ -48,10 +59,7 @@ export class Han2005CushionResolver implements CushionCollisionResolver {
     const e = ball.physicsParams.eRestitution
     const sinTheta = Math.min(1, Math.max(-1, config.cushionHeight / R))
     const cosTheta = Math.sqrt(1 - sinTheta * sinTheta)
-    const m = ball.physicsParams.mass
-
-    let vPerp: number, vPar: number
-    let omegaPar: number, omegaPerp: number, omegaZ: number
+    const I_factor = 5 / (2 * R) // mR/I where I = (2/5)mR²
 
     const vx = ball.velocity[0]
     const vy = ball.velocity[1]
@@ -59,87 +67,112 @@ export class Han2005CushionResolver implements CushionCollisionResolver {
     const wy = ball.angularVelocity[1]
     const wz = ball.angularVelocity[2]
 
+    // Decompose into Han 2005 reference frame per cushion.
+    // ref x = into cushion (perpendicular), ref y = along rail (parallel)
+    // omegaXRef = ω about ref x-axis, omegaYRef = ω about ref y-axis
+    let vPerp: number, vPar: number
+    let omegaXRef: number, omegaYRef: number
+
     switch (cushion) {
-      case Cushion.North:
-        vPerp = vy; vPar = vx; omegaPar = wy; omegaPerp = wx; omegaZ = wz
+      case Cushion.North: // wall at +y, ref x = +y, ref y = +x
+        vPerp = vy; vPar = vx
+        omegaXRef = wy; omegaYRef = wx
         break
-      case Cushion.South:
-        vPerp = -vy; vPar = -vx; omegaPar = -wy; omegaPerp = -wx; omegaZ = wz
+      case Cushion.South: // wall at -y, ref x = -y, ref y = -x
+        vPerp = -vy; vPar = -vx
+        omegaXRef = -wy; omegaYRef = -wx
         break
-      case Cushion.East:
-        vPerp = vx; vPar = -vy; omegaPar = wx; omegaPerp = -wy; omegaZ = wz
+      case Cushion.East: // wall at +x, ref x = +x, ref y = -y
+        vPerp = vx; vPar = -vy
+        omegaXRef = wx; omegaYRef = -wy
         break
-      case Cushion.West:
-        vPerp = -vx; vPar = vy; omegaPar = -wx; omegaPerp = wy; omegaZ = wz
+      case Cushion.West: // wall at -x, ref x = -x, ref y = +y
+        vPerp = -vx; vPar = vy
+        omegaXRef = -wx; omegaYRef = wy
         break
     }
 
-    // Han 2005 intermediate calculations
+    // Han 2005 intermediate quantities (reference: pooltool theory)
+    // c = component of velocity along contact normal
+    // sx, sy = sliding velocity components at the contact point
     const c = vPerp * cosTheta
-    const sx = vPar * sinTheta - vPerp * cosTheta + R * omegaPar
-    const sy = -vPar - R * omegaZ * cosTheta + R * omegaPerp * sinTheta
+    const sx = vPerp * sinTheta - vPar * cosTheta + R * omegaYRef
+    const sy = -vPar - R * wz * cosTheta + R * omegaXRef * sinTheta
 
-    const Pze = m * c * (1 + e)
+    const Pze = ball.physicsParams.mass * c * (1 + e)
     const sNorm = Math.sqrt(sx * sx + sy * sy)
-    const Pzs = (2 * m / 7) * sNorm
+    const Pzs = (2 * ball.physicsParams.mass / 7) * sNorm
 
-    let newVPerp: number, newVPar: number
-    let newOmegaPar: number, newOmegaPerp: number, newOmegaZ: number
+    // Post-collision velocities (ABSOLUTE values in reference frame)
+    let newVPerp: number, newVPar: number, newVZ: number
 
     if (sNorm < 1e-12 || Pzs <= Pze) {
-      // Insufficient friction or no sliding
-      newVPar = vPar - (2 / 7) * sx * sinTheta
-      newVPerp = (2 / 7) * sx * cosTheta - (1 + e) * c * sinTheta
-
-      newOmegaPar = omegaPar - (5 / (2 * R)) * sx * sinTheta
-      newOmegaPerp = omegaPerp + (5 / (2 * R)) * sy * sinTheta
-      newOmegaZ = omegaZ - (5 / (2 * R)) * sy * cosTheta
+      // No-sliding case: friction is sufficient to prevent sliding
+      // Formulas are impulse-based DELTAS added to initial velocity
+      newVPerp = vPerp - (2 / 7) * sx * sinTheta - (1 + e) * c * cosTheta
+      newVPar = vPar + (2 / 7) * sy
+      newVZ = (2 / 7) * sx * cosTheta - (1 + e) * c * sinTheta
     } else {
-      // Full sliding regime
-      const mu = Pze / (m * sNorm)
+      // Full sliding case: friction is Coulomb-limited
+      // Formulas are impulse-based DELTAS added to initial velocity
+      const mu = Pze / (ball.physicsParams.mass * sNorm)
       const cosPhi = sx / sNorm
       const sinPhi = sy / sNorm
 
-      newVPerp = -c * (1 + e) * (mu * cosPhi * cosTheta + sinTheta)
+      newVPerp = vPerp - c * (1 + e) * (mu * cosPhi * sinTheta + cosTheta)
       newVPar = vPar + c * (1 + e) * mu * sinPhi
-
-      newOmegaPar = omegaPar - (5 * c * (1 + e) * mu * cosPhi * sinTheta) / (2 * R)
-      newOmegaPerp = omegaPerp + (5 * c * (1 + e) * mu * sinPhi * sinTheta) / (2 * R)
-      newOmegaZ = omegaZ - (5 * c * (1 + e) * mu * sinPhi * cosTheta) / (2 * R)
+      newVZ = c * (1 + e) * (mu * cosPhi * cosTheta - sinTheta)
     }
 
-    // Map back to world frame, ensure perpendicular velocity points away from wall
+    // vZ starts at 0 (ball on table). Only positive values make the ball airborne.
+    // Negative means cushion pushes ball into table — table normal force prevents this.
+    newVZ = Math.max(0, newVZ)
+
+    // Angular velocity: ABSOLUTE values computed from post-collision linear velocity
+    // ω_x_ref = -(mR/I) * v_perp * sinθ
+    // ω_y_ref = (mR/I) * (v_perp * sinθ - v_z * cosθ)
+    // ω_z     = (mR/I) * v_par * cosθ
+    const newOmegaXRef = -I_factor * newVPerp * sinTheta
+    const newOmegaYRef = I_factor * (newVPerp * sinTheta - newVZ * cosTheta)
+    const newOmegaZ = I_factor * newVPar * cosTheta
+
+    // Map back to world frame
+    // Perpendicular velocity must point away from wall (negative in ref frame = away)
+    // We use -Math.abs to ensure it always points away
     switch (cushion) {
-      case Cushion.North:
+      case Cushion.North: // ref x = +y, ref y = +x
         ball.velocity[0] = newVPar
         ball.velocity[1] = -Math.abs(newVPerp)
-        ball.angularVelocity[0] = newOmegaPerp
-        ball.angularVelocity[1] = newOmegaPar
+        ball.velocity[2] = newVZ
+        ball.angularVelocity[0] = newOmegaYRef
+        ball.angularVelocity[1] = newOmegaXRef
         ball.angularVelocity[2] = newOmegaZ
         break
-      case Cushion.South:
+      case Cushion.South: // ref x = -y, ref y = -x
         ball.velocity[0] = -newVPar
         ball.velocity[1] = Math.abs(newVPerp)
-        ball.angularVelocity[0] = -newOmegaPerp
-        ball.angularVelocity[1] = -newOmegaPar
+        ball.velocity[2] = newVZ
+        ball.angularVelocity[0] = -newOmegaYRef
+        ball.angularVelocity[1] = -newOmegaXRef
         ball.angularVelocity[2] = newOmegaZ
         break
-      case Cushion.East:
+      case Cushion.East: // ref x = +x, ref y = -y
         ball.velocity[0] = -Math.abs(newVPerp)
         ball.velocity[1] = -newVPar
-        ball.angularVelocity[0] = newOmegaPar
-        ball.angularVelocity[1] = -newOmegaPerp
+        ball.velocity[2] = newVZ
+        ball.angularVelocity[0] = newOmegaXRef
+        ball.angularVelocity[1] = -newOmegaYRef
         ball.angularVelocity[2] = newOmegaZ
         break
-      case Cushion.West:
+      case Cushion.West: // ref x = -x, ref y = +y
         ball.velocity[0] = Math.abs(newVPerp)
         ball.velocity[1] = newVPar
-        ball.angularVelocity[0] = -newOmegaPar
-        ball.angularVelocity[1] = newOmegaPerp
+        ball.velocity[2] = newVZ
+        ball.angularVelocity[0] = -newOmegaXRef
+        ball.angularVelocity[1] = newOmegaYRef
         ball.angularVelocity[2] = newOmegaZ
         break
     }
-    ball.velocity[2] = 0
   }
 
   private snapToBoundary(ball: Ball, cushion: Cushion, tableWidth: number, tableHeight: number): void {

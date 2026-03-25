@@ -3,4 +3,5 @@ export enum MotionState {
   Spinning = 'SPINNING',
   Rolling = 'ROLLING',
   Sliding = 'SLIDING',
+  Airborne = 'AIRBORNE',
 }

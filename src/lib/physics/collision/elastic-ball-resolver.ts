@@ -2,8 +2,10 @@
  * Elastic ball-ball collision resolver.
  *
  * Standard 2D elastic collision with mass support.
- * After resolution, enforces rolling constraint (angular velocity matches
- * linear velocity) and zeroes z-spin to prevent energy accumulation.
+ * Angular velocity is preserved unchanged through ball-ball collisions
+ * (elastic, frictionless, instantaneous model — no spin transfer).
+ * After collision, updateTrajectory() re-determines the motion state;
+ * the ball will typically enter Sliding and friction naturally evolves it to Rolling.
  */
 
 import type Ball from '../../ball'
@@ -46,21 +48,11 @@ export class ElasticBallResolver implements BallCollisionResolver {
     c2.velocity[0] = dx * v2NormalAfter + vx2Remainder
     c2.velocity[1] = dy * v2NormalAfter + vy2Remainder
 
-    // Zero z-components to prevent drift
+    // Zero z-velocity (we only use z for airborne balls, not ball-ball collisions)
     c1.velocity[2] = 0
     c2.velocity[2] = 0
 
-    // Enforce rolling constraint and zero z-spin.
-    // Without this, residual spin from pre-collision state causes friction
-    // to re-accelerate the ball or keep it spinning indefinitely.
-    const R1 = c1.radius
-    c1.angularVelocity[0] = -c1.velocity[1] / R1
-    c1.angularVelocity[1] = c1.velocity[0] / R1
-    c1.angularVelocity[2] = 0
-
-    const R2 = c2.radius
-    c2.angularVelocity[0] = -c2.velocity[1] / R2
-    c2.angularVelocity[1] = c2.velocity[0] / R2
-    c2.angularVelocity[2] = 0
+    // Angular velocity is preserved unchanged — no spin transfer in this model.
+    // The ball's motion state will be re-determined by updateTrajectory() after this.
   }
 }

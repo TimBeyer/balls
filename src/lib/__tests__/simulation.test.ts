@@ -5,6 +5,7 @@ import Ball from '../ball'
 import { createTestBall, zeroFrictionConfig } from './test-helpers'
 import { defaultPhysicsConfig } from '../physics-config'
 import { createPoolPhysicsProfile } from '../physics/physics-profile'
+import { MotionState } from '../motion-state'
 
 describe('simulate', () => {
   it('head-on collision: two circles should bounce back', () => {
@@ -214,7 +215,7 @@ describe('simulate', () => {
     expect(movingSnap.velocity[0]).toBeLessThan(stationarySnap.velocity[0])
   })
 
-  it('z-spin does not accumulate through ball-ball collisions', () => {
+  it('angular velocity is preserved through ball-ball collisions', () => {
     const R = 37.5
     const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
     // Give ball significant z-spin (as if from a cushion bounce)
@@ -245,11 +246,13 @@ describe('simulate', () => {
     const collisions = replay.filter((r) => r.type === EventType.CircleCollision)
     expect(collisions.length).toBeGreaterThanOrEqual(1)
 
-    // After collision, z-spin should be zeroed on both balls
+    // Angular velocity is preserved unchanged through elastic ball-ball collisions.
+    // Spinner keeps its z-spin, target stays at zero.
     const first = collisions[0]
-    for (const snap of first.snapshots) {
-      expect(snap.angularVelocity[2]).toBe(0)
-    }
+    const spinnerSnap = first.snapshots.find((s) => s.id === 'spinner')!
+    const targetSnap = first.snapshots.find((s) => s.id === 'target')!
+    expect(Math.abs(spinnerSnap.angularVelocity[2])).toBeGreaterThan(10)
+    expect(targetSnap.angularVelocity[2]).toBe(0)
   })
 
   it('total kinetic energy does not increase through collisions', () => {
@@ -301,5 +304,102 @@ describe('simulate', () => {
     const lastSnap = lastEvent.snapshots[0]
     const speed = Math.sqrt(lastSnap.velocity[0] ** 2 + lastSnap.velocity[1] ** 2)
     expect(speed).toBeLessThan(1) // effectively stopped
+  })
+
+  it('cushion bounce: head-on returns at approximately e * speed', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    const speed = 1000
+    // Ball heading straight into east wall
+    const ball = new Ball(
+      [2840 - R - 50, 710],
+      [speed, 0],
+      R,
+      0,
+      params.mass,
+      'bouncer',
+      [0, 0, 0],
+      params,
+      defaultPhysicsConfig,
+    )
+
+    const replay = simulate(2840, 1420, 10, [ball], defaultPhysicsConfig)
+    const cushionHits = replay.filter((r) => r.type === EventType.CushionCollision)
+    expect(cushionHits.length).toBeGreaterThanOrEqual(1)
+
+    const snap = cushionHits[0].snapshots[0]
+    // Post-collision speed should be roughly e * original speed (in the opposite direction)
+    const postSpeed = Math.abs(snap.velocity[0])
+    const e = params.eRestitution
+    // Allow generous tolerance since Han 2005 includes angular effects
+    expect(postSpeed).toBeGreaterThan(speed * e * 0.5)
+    expect(postSpeed).toBeLessThan(speed * 1.1) // should not gain energy
+    // Should be moving away from the wall (negative x)
+    expect(snap.velocity[0]).toBeLessThan(0)
+  })
+
+  it('cushion collision does not increase total energy', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    const ball = new Ball(
+      [2840 - R - 50, 710],
+      [1000, 200],
+      R,
+      0,
+      params.mass,
+      'energy-test',
+      [0, 0, 0],
+      params,
+      defaultPhysicsConfig,
+    )
+
+    const replay = simulate(2840, 1420, 10, [ball], defaultPhysicsConfig)
+    const cushionHits = replay.filter((r) => r.type === EventType.CushionCollision)
+    expect(cushionHits.length).toBeGreaterThanOrEqual(1)
+
+    // Initial KE
+    const initialKE = 0.5 * params.mass * (1000 ** 2 + 200 ** 2)
+
+    for (const hit of cushionHits) {
+      const snap = hit.snapshots[0]
+      const speed2 = snap.velocity[0] ** 2 + snap.velocity[1] ** 2
+      const ke = 0.5 * params.mass * speed2
+      // Energy should not increase (allow small numerical tolerance)
+      expect(ke).toBeLessThanOrEqual(initialKE * 1.05)
+    }
+  })
+
+  it('airborne ball: ball with upward velocity enters and exits airborne state', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    // Create a ball with upward velocity (simulating post-cushion bounce)
+    const ball = new Ball(
+      [1000, 700],
+      [500, 0, 100], // vz = 100 mm/s upward
+      R,
+      0,
+      params.mass,
+      'airborne-test',
+      [0, 0, 0],
+      params,
+      defaultPhysicsConfig,
+    )
+
+    const profile = createPoolPhysicsProfile()
+    ball.updateTrajectory(profile, defaultPhysicsConfig)
+
+    // Ball should initially be airborne
+    expect(ball.motionState).toBe(MotionState.Airborne)
+
+    const replay = simulate(2840, 1420, 10, [ball], defaultPhysicsConfig, profile)
+
+    // Should have state transitions (airborne → surface state)
+    const transitions = replay.filter((r) => r.type === EventType.StateTransition)
+    expect(transitions.length).toBeGreaterThan(0)
+
+    // Ball should eventually settle to a non-airborne state
+    const lastEvent = replay[replay.length - 1]
+    const lastSnap = lastEvent.snapshots[0]
+    expect(lastSnap.motionState).not.toBe(MotionState.Airborne)
   })
 })

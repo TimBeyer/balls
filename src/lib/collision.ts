@@ -1,6 +1,7 @@
 import type Ball from './ball'
 import { MinHeap } from './min-heap'
 import { SpatialGrid } from './spatial-grid'
+import { MotionState } from './motion-state'
 import type { PhysicsConfig } from './physics-config'
 import type { PhysicsProfile } from './physics/physics-profile'
 
@@ -270,13 +271,16 @@ export class CollisionFinder {
     const referenceCircle = this.circlesById.get(circleId)!
 
     // Cushion collision (via detector from profile)
-    const cushionCollision = this.profile.cushionDetector.detect(
-      referenceCircle,
-      this.tableWidth,
-      this.tableHeight,
-    )
-    cushionCollision.seq = this.nextSeq++
-    this.heap.push(cushionCollision)
+    // Airborne balls are above the table and don't interact with cushions
+    if (referenceCircle.motionState !== MotionState.Airborne) {
+      const cushionCollision = this.profile.cushionDetector.detect(
+        referenceCircle,
+        this.tableWidth,
+        this.tableHeight,
+      )
+      cushionCollision.seq = this.nextSeq++
+      this.heap.push(cushionCollision)
+    }
 
     // Ball-ball collisions with neighbors (via detector from profile)
     const neighbors = this.grid.getNearbyCircles(referenceCircle)

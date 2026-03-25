@@ -21,6 +21,7 @@ import { StationaryMotion } from './motion/stationary-motion'
 import { SpinningMotion } from './motion/spinning-motion'
 import { RollingMotion } from './motion/rolling-motion'
 import { SlidingMotion } from './motion/sliding-motion'
+import { AirborneMotion } from './motion/airborne-motion'
 
 // Collision resolver implementations
 import { ElasticBallResolver } from './collision/elastic-ball-resolver'
@@ -62,6 +63,11 @@ export function determinePoolMotionState(
   radius: number,
   threshold: number = 1e-6,
 ): MotionState {
+  // Check for airborne first (ball has upward velocity or is above table)
+  if (velocity[2] > threshold) {
+    return MotionState.Airborne
+  }
+
   const speed = vec3Magnitude2D(velocity)
   const hasVelocity = speed > threshold
 
@@ -98,6 +104,7 @@ export function createPoolPhysicsProfile(): PhysicsProfile {
     [MotionState.Spinning, new SpinningMotion()],
     [MotionState.Rolling, new RollingMotion()],
     [MotionState.Sliding, new SlidingMotion()],
+    [MotionState.Airborne, new AirborneMotion()],
   ])
 
   return {

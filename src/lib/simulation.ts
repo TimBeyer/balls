@@ -102,7 +102,7 @@ export function simulate(
       // Delegate state transition to the motion model
       const model = profile.motionModels.get(stateEvent.fromState as MotionState)
       if (model) {
-        model.applyTransition(ball, stateEvent.toState as MotionState)
+        model.applyTransition(ball, stateEvent.toState as MotionState, physicsConfig)
       }
       ball.motionState = stateEvent.toState as MotionState
 

@@ -17,6 +17,7 @@ export const zeroFrictionParams: BallPhysicsParams = {
 export const zeroFrictionConfig: PhysicsConfig = {
   gravity: 9810,
   cushionHeight: 3.5, // mm above ball center — realistic for a pool cushion
+  eTableRestitution: 0.5,
   defaultBallParams: zeroFrictionParams,
 }
 
