@@ -26,6 +26,7 @@ let replayCircles: Ball[] = []
 let nextEvent: ReplayData | undefined
 let simulatedResults: ReplayData[] = []
 let fetchingMore = false
+let simulationDone = false
 
 let threeRenderer: THREE.WebGLRenderer | null = null
 let simulationScene: SimulationScene | null = null
@@ -71,6 +72,7 @@ function startSimulation() {
   nextEvent = undefined
   simulatedResults = []
   fetchingMore = false
+  simulationDone = false
   start = undefined
   simulationScene = null
 
@@ -135,6 +137,11 @@ function startSimulation() {
         nextEvent = results.shift()
         queueMicrotask(initScene)
       }
+      // If worker sends only the initial snapshot (time=0) or no real events,
+      // all balls are stationary — stop requesting more data
+      if (results.length === 0 || (results.length === 1 && results[0].time === 0)) {
+        simulationDone = true
+      }
       simulatedResults = simulatedResults.concat(results)
       fetchingMore = false
     }
@@ -185,7 +192,7 @@ function initScene() {
 
     if (nextEvent) {
       const lastEvent = simulatedResults[simulatedResults.length - 1]
-      if (!fetchingMore && lastEvent && lastEvent.time - progress <= PRECALC) {
+      if (!simulationDone && !fetchingMore && lastEvent && lastEvent.time - progress <= PRECALC) {
         fetchingMore = true
         worker!.postMessage({
           type: RequestMessageType.REQUEST_SIMULATION_DATA,
@@ -239,10 +246,14 @@ function initScene() {
     if (config.showCollisionPreview) renderers.push(collisionPreviewRenderer)
 
     scene.renderAtTime(progress)
-    for (const r of renderers) {
-      for (const circleId of circleIds) {
-        const circle = state[circleId]
-        r.render(circle, progress, nextEvent!, simulatedResults)
+    if (nextEvent || simulatedResults.length > 0) {
+      for (const r of renderers) {
+        for (const circleId of circleIds) {
+          const circle = state[circleId]
+          if (nextEvent) {
+            r.render(circle, progress, nextEvent, simulatedResults)
+          }
+        }
       }
     }
 
