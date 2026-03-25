@@ -56,10 +56,14 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const Cy = rebaseB.c1 - rebaseA.c1
     const Cz = rebaseB.c2 - rebaseA.c2
 
-    // Overlap guard
+    // Overlap guard — skip if balls overlap or are essentially touching.
+    // A small gap threshold prevents re-detecting the same collision when balls
+    // have barely separated (e.g., after a state transition at microsecond timescale).
+    const MIN_GAP = 1e-4 // mm — minimum surface separation to predict a collision
     const distSq = Cx * Cx + Cy * Cy + Cz * Cz
     const rSum = circleA.radius + circleB.radius
-    if (distSq < rSum * rSum) return undefined
+    const effectiveRSum = rSum + MIN_GAP
+    if (distSq < effectiveRSum * effectiveRSum) return undefined
 
     // Quartic coefficients
     const coeff4 = Ax * Ax + Ay * Ay + Az * Az

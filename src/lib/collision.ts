@@ -246,17 +246,10 @@ export class CollisionFinder {
       }
 
       if (next.type === 'StateTransition') {
-        const stateEvent = next as StateTransitionEvent
-        // Minor transitions (Sliding→Rolling) don't invalidate ball-ball predictions,
-        // so skip the epoch increment to avoid cascading recomputation.
-        const isMinor =
-          stateEvent.fromState === MotionState.Sliding && stateEvent.toState === MotionState.Rolling
-        if (!isMinor) {
-          for (const circle of next.circles) {
-            circle.epoch++
-          }
+        for (const circle of next.circles) {
+          circle.epoch++
         }
-        return stateEvent
+        return next as StateTransitionEvent
       }
 
       // Collision event: invalidate epochs for involved circles
@@ -310,31 +303,4 @@ export class CollisionFinder {
     this.scheduleNextCellTransition(referenceCircle)
   }
 
-  /**
-   * Lightweight recompute that only re-schedules cushion collision, state transition,
-   * and cell transition — skips the expensive ball-ball neighbor scan.
-   *
-   * Used for minor trajectory changes (e.g., Sliding→Rolling) where the existing
-   * ball-ball predictions remain approximately valid. The epoch is NOT incremented
-   * for these transitions, so old predictions stay in the heap.
-   */
-  recomputeMinor(circleId: string) {
-    const referenceCircle = this.circlesById.get(circleId)!
-
-    // Cushion collision
-    if (referenceCircle.motionState !== MotionState.Airborne) {
-      const cushionCollision = this.profile.cushionDetector.detect(
-        referenceCircle,
-        this.tableWidth,
-        this.tableHeight,
-      )
-      cushionCollision.seq = this.nextSeq++
-      this.heap.push(cushionCollision)
-    }
-
-    // State transition
-    this.scheduleStateTransition(referenceCircle)
-
-    this.scheduleNextCellTransition(referenceCircle)
-  }
 }

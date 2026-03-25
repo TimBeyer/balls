@@ -128,15 +128,7 @@ export function simulate(
         snapshots: [snapshotBall(ball)],
       })
 
-      // Minor transitions (Sliding→Rolling) only need cushion + state re-prediction,
-      // not the expensive ball-ball neighbor scan.
-      const isMinorTransition =
-        stateEvent.fromState === String(MotionState.Sliding) && stateEvent.toState === String(MotionState.Rolling)
-      if (isMinorTransition) {
-        collisionFinder.recomputeMinor(ball.id)
-      } else {
-        collisionFinder.recompute(ball.id)
-      }
+      collisionFinder.recompute(ball.id)
       continue
     }
 
@@ -186,6 +178,24 @@ export function simulate(
       // Ball-ball collision
       const c1 = event.circles[0]
       const c2 = event.circles[1]
+
+      // Contact verification: quadratic trajectory approximation (especially for Rolling
+      // with spin) can diverge from the true path, causing the quartic to predict contact
+      // at a time when the balls are actually millimeters apart. Skip phantom collisions.
+      const dx = c1.position[0] - c2.position[0]
+      const dy = c1.position[1] - c2.position[1]
+      const dz = c1.position[2] - c2.position[2]
+      const distSq = dx * dx + dy * dy + dz * dz
+      const rSum = c1.radius + c2.radius
+      const CONTACT_TOLERANCE = 0.05 // mm — max allowed gap for a valid collision
+      const gap = Math.sqrt(distSq) - rSum
+      if (gap > CONTACT_TOLERANCE) {
+        // Phantom collision — balls aren't actually touching. Recompute with fresh trajectories.
+        for (const circle of event.circles) {
+          collisionFinder.recompute(circle.id)
+        }
+        continue
+      }
 
       // Delegate to the ball collision resolver
       profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
