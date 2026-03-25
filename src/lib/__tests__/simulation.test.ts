@@ -151,12 +151,18 @@ describe('simulate', () => {
     ]
     const replay = simulate(tableWidth, tableHeight, 60, balls, defaultPhysicsConfig)
 
-    for (const event of replay) {
+    for (let i = 0; i < replay.length; i++) {
+      const event = replay[i]
       for (const snap of event.snapshots) {
+        // Airborne balls can fly over cushions (no cushion collision while in the air)
+        if (snap.motionState === MotionState.Airborne) continue
+        const xMax = tableWidth - R + 1
+        const yMax = tableHeight - R + 1
+
         expect(snap.position[0]).toBeGreaterThanOrEqual(R - 1)
-        expect(snap.position[0]).toBeLessThanOrEqual(tableWidth - R + 1)
+        expect(snap.position[0]).toBeLessThanOrEqual(xMax)
         expect(snap.position[1]).toBeGreaterThanOrEqual(R - 1)
-        expect(snap.position[1]).toBeLessThanOrEqual(tableHeight - R + 1)
+        expect(snap.position[1]).toBeLessThanOrEqual(yMax)
       }
     }
 

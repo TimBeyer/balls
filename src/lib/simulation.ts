@@ -35,6 +35,13 @@ export enum EventType {
   StateUpdate = 'STATE_UPDATE',
 }
 
+/** Clamp a ball's position to within table bounds (for balls that flew past while airborne) */
+function clampToBounds(ball: Ball, tableWidth: number, tableHeight: number) {
+  const R = ball.radius
+  ball.position[0] = Math.max(R, Math.min(tableWidth - R, ball.position[0]))
+  ball.position[1] = Math.max(R, Math.min(tableHeight - R, ball.position[1]))
+}
+
 function snapshotBall(ball: Ball): CircleSnapshot {
   return {
     id: ball.id,
@@ -106,6 +113,12 @@ export function simulate(
       }
       ball.motionState = stateEvent.toState as MotionState
 
+      // When an airborne ball lands, it may have flown past the table boundary.
+      // Clamp position back to within bounds (the ball landed on the rail in reality).
+      if (stateEvent.fromState === String(MotionState.Airborne)) {
+        clampToBounds(ball, tableWidth, tableHeight)
+      }
+
       ball.updateTrajectory(profile, physicsConfig)
       currentTime = stateEvent.time
 
@@ -115,7 +128,15 @@ export function simulate(
         snapshots: [snapshotBall(ball)],
       })
 
-      collisionFinder.recompute(ball.id)
+      // Minor transitions (Sliding→Rolling) only need cushion + state re-prediction,
+      // not the expensive ball-ball neighbor scan.
+      const isMinorTransition =
+        stateEvent.fromState === String(MotionState.Sliding) && stateEvent.toState === String(MotionState.Rolling)
+      if (isMinorTransition) {
+        collisionFinder.recomputeMinor(ball.id)
+      } else {
+        collisionFinder.recompute(ball.id)
+      }
       continue
     }
 
@@ -138,6 +159,29 @@ export function simulate(
       if (resolver.clampTrajectory) {
         resolver.clampTrajectory(ball, cc.cushion)
       }
+
+      // Corner bounce: after resolving one cushion, the ball may be at another wall
+      // boundary with velocity into it (e.g., hitting North while at East boundary).
+      // The quadratic cushion detector can't detect t=0 collisions, so handle immediately.
+      const R = ball.radius
+      if (ball.velocity[0] > 0 && ball.position[0] >= tableWidth - R - 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.East, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.East)
+      } else if (ball.velocity[0] < 0 && ball.position[0] <= R + 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.West, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.West)
+      }
+      if (ball.velocity[1] > 0 && ball.position[1] >= tableHeight - R - 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.North, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.North)
+      } else if (ball.velocity[1] < 0 && ball.position[1] <= R + 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.South, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.South)
+      }
     } else {
       // Ball-ball collision
       const c1 = event.circles[0]
@@ -148,6 +192,13 @@ export function simulate(
 
       c1.updateTrajectory(profile, physicsConfig)
       c2.updateTrajectory(profile, physicsConfig)
+    }
+
+    // Clamp non-airborne balls that may have drifted past table bounds while airborne
+    for (const circle of event.circles) {
+      if (circle.motionState !== MotionState.Airborne) {
+        clampToBounds(circle, tableWidth, tableHeight)
+      }
     }
 
     currentTime = event.time

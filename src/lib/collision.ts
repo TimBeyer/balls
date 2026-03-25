@@ -246,11 +246,17 @@ export class CollisionFinder {
       }
 
       if (next.type === 'StateTransition') {
-        // State transitions: increment epoch and return to caller
-        for (const circle of next.circles) {
-          circle.epoch++
+        const stateEvent = next as StateTransitionEvent
+        // Minor transitions (Sliding→Rolling) don't invalidate ball-ball predictions,
+        // so skip the epoch increment to avoid cascading recomputation.
+        const isMinor =
+          stateEvent.fromState === MotionState.Sliding && stateEvent.toState === MotionState.Rolling
+        if (!isMinor) {
+          for (const circle of next.circles) {
+            circle.epoch++
+          }
         }
-        return next as StateTransitionEvent
+        return stateEvent
       }
 
       // Collision event: invalidate epochs for involved circles
@@ -299,6 +305,34 @@ export class CollisionFinder {
     }
 
     // State transition (via motion model from profile)
+    this.scheduleStateTransition(referenceCircle)
+
+    this.scheduleNextCellTransition(referenceCircle)
+  }
+
+  /**
+   * Lightweight recompute that only re-schedules cushion collision, state transition,
+   * and cell transition — skips the expensive ball-ball neighbor scan.
+   *
+   * Used for minor trajectory changes (e.g., Sliding→Rolling) where the existing
+   * ball-ball predictions remain approximately valid. The epoch is NOT incremented
+   * for these transitions, so old predictions stay in the heap.
+   */
+  recomputeMinor(circleId: string) {
+    const referenceCircle = this.circlesById.get(circleId)!
+
+    // Cushion collision
+    if (referenceCircle.motionState !== MotionState.Airborne) {
+      const cushionCollision = this.profile.cushionDetector.detect(
+        referenceCircle,
+        this.tableWidth,
+        this.tableHeight,
+      )
+      cushionCollision.seq = this.nextSeq++
+      this.heap.push(cushionCollision)
+    }
+
+    // State transition
     this.scheduleStateTransition(referenceCircle)
 
     this.scheduleNextCellTransition(referenceCircle)
