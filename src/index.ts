@@ -177,63 +177,56 @@ function initScene() {
   function step(timestamp: number) {
     stats!.begin()
 
-    if (!nextEvent) {
-      console.log('Simulation ended')
-      return
-    }
-
     if (!start) start = timestamp
 
     const progress = (timestamp - start) * config.simulationSpeed
 
-    const lastEvent = simulatedResults[simulatedResults.length - 1]
-    if (!fetchingMore && lastEvent && lastEvent.time - progress <= PRECALC) {
-      fetchingMore = true
-      worker!.postMessage({
-        type: RequestMessageType.REQUEST_SIMULATION_DATA,
-        payload: {
-          time: PRECALC,
-        },
-      })
-    }
-
-    while (nextEvent && progress >= nextEvent.time) {
-      for (const snapshot of nextEvent.snapshots) {
-        const circle = state[snapshot.id]
-        // Update ball state from snapshot
-        circle.position[0] = snapshot.position[0]
-        circle.position[1] = snapshot.position[1]
-        circle.velocity[0] = snapshot.velocity[0]
-        circle.velocity[1] = snapshot.velocity[1]
-        circle.radius = snapshot.radius
-        circle.time = snapshot.time
-        // Update new fields
-        if (snapshot.angularVelocity) {
-          circle.angularVelocity = [...snapshot.angularVelocity]
-        }
-        if (snapshot.motionState) {
-          circle.motionState = snapshot.motionState
-        }
-        if (snapshot.trajectoryA) {
-          circle.trajectory.a[0] = snapshot.trajectoryA[0]
-          circle.trajectory.a[1] = snapshot.trajectoryA[1]
-        }
-        // Update trajectory b (velocity) and c (position) for correct interpolation
-        circle.trajectory.b[0] = snapshot.velocity[0]
-        circle.trajectory.b[1] = snapshot.velocity[1]
-        circle.trajectory.c[0] = snapshot.position[0]
-        circle.trajectory.c[1] = snapshot.position[1]
+    if (nextEvent) {
+      const lastEvent = simulatedResults[simulatedResults.length - 1]
+      if (!fetchingMore && lastEvent && lastEvent.time - progress <= PRECALC) {
+        fetchingMore = true
+        worker!.postMessage({
+          type: RequestMessageType.REQUEST_SIMULATION_DATA,
+          payload: {
+            time: PRECALC,
+          },
+        })
       }
 
-      for (const circleId of circleIds) {
-        const circle = state[circleId]
-        circle.advanceTime(nextEvent.time)
-      }
+      while (nextEvent && progress >= nextEvent.time) {
+        for (const snapshot of nextEvent.snapshots) {
+          const circle = state[snapshot.id]
+          // Update ball state from snapshot
+          circle.position[0] = snapshot.position[0]
+          circle.position[1] = snapshot.position[1]
+          circle.velocity[0] = snapshot.velocity[0]
+          circle.velocity[1] = snapshot.velocity[1]
+          circle.radius = snapshot.radius
+          circle.time = snapshot.time
+          // Update new fields
+          if (snapshot.angularVelocity) {
+            circle.angularVelocity = [...snapshot.angularVelocity]
+          }
+          if (snapshot.motionState) {
+            circle.motionState = snapshot.motionState
+          }
+          if (snapshot.trajectoryA) {
+            circle.trajectory.a[0] = snapshot.trajectoryA[0]
+            circle.trajectory.a[1] = snapshot.trajectoryA[1]
+          }
+          // Update trajectory b (velocity) and c (position) for correct interpolation
+          circle.trajectory.b[0] = snapshot.velocity[0]
+          circle.trajectory.b[1] = snapshot.velocity[1]
+          circle.trajectory.c[0] = snapshot.position[0]
+          circle.trajectory.c[1] = snapshot.position[1]
+        }
 
-      nextEvent = simulatedResults.shift()
-      if (!nextEvent) {
-        console.log('Simulation ended')
-        return
+        for (const circleId of circleIds) {
+          const circle = state[circleId]
+          circle.advanceTime(nextEvent.time)
+        }
+
+        nextEvent = simulatedResults.shift()
       }
     }
 

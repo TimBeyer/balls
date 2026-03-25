@@ -50,7 +50,7 @@ export function generateCircles(
     const x = cx + (random() * 2 - 1) * maxJitter
     const y = cy + (random() * 2 - 1) * maxJitter
 
-    const velocity: Vector2D = [random() * 0.7 - random() * 1.4, random() * 0.7 - random() * 1.4]
+    const velocity: Vector2D = [(random() * 0.7 - random() * 1.4) * 1000, (random() * 0.7 - random() * 1.4) * 1000]
     const ballParams = { ...physicsConfig.defaultBallParams, radius: RADIUS }
     circles.push(
       new Ball(
