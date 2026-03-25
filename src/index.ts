@@ -88,6 +88,7 @@ function startSimulation() {
       numBalls: config.numBalls,
       tableHeight: config.tableHeight,
       tableWidth: config.tableWidth,
+      physicsProfile: config.physicsProfile,
     },
   }
 

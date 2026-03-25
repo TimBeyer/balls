@@ -11,6 +11,10 @@ export function createUI(config: SimulationConfig, callbacks: UICallbacks): Pane
 
   // --- Simulation (restart required) ---
   const simFolder = pane.addFolder({ title: 'Simulation (restart to apply)' })
+  simFolder.addBinding(config, 'physicsProfile', {
+    label: 'Physics',
+    options: { 'Pool (3D friction)': 'pool', 'Simple 2D': 'simple2d' },
+  })
   simFolder.addBinding(config, 'numBalls', { min: 1, max: 500, step: 1, label: 'Balls' })
   simFolder.addBinding(config, 'tableWidth', { min: 500, max: 5000, step: 10, label: 'Table Width' })
   simFolder.addBinding(config, 'tableHeight', { min: 500, max: 3000, step: 10, label: 'Table Height' })

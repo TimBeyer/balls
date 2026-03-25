@@ -1,8 +1,11 @@
+export type PhysicsProfileName = 'pool' | 'simple2d'
+
 export interface SimulationConfig {
   // Simulation (restart required)
   numBalls: number
   tableWidth: number
   tableHeight: number
+  physicsProfile: PhysicsProfileName
 
   // 3D Rendering
   shadowsEnabled: boolean
@@ -42,6 +45,7 @@ export const defaultConfig: SimulationConfig = {
   numBalls: 150,
   tableWidth: 2840,
   tableHeight: 1420,
+  physicsProfile: 'pool',
 
   shadowsEnabled: true,
   shadowMapSize: 1024,

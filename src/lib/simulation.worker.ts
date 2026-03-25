@@ -4,8 +4,21 @@ import { generateCircles } from './generate-circles'
 import { simulate } from './simulation'
 import type Ball from './ball'
 import { defaultPhysicsConfig, PhysicsConfig } from './physics-config'
+import { createPoolPhysicsProfile, createSimple2DProfile } from './physics/physics-profile'
+import type { PhysicsProfile } from './physics/physics-profile'
+import type { PhysicsProfileName } from './config'
 
 declare const self: DedicatedWorkerGlobalScope
+
+function createProfileByName(name: PhysicsProfileName): PhysicsProfile {
+  switch (name) {
+    case 'simple2d':
+      return createSimple2DProfile()
+    case 'pool':
+    default:
+      return createPoolPhysicsProfile()
+  }
+}
 
 let isInitialized = false
 let TABLE_HEIGHT = 0
@@ -14,6 +27,7 @@ let NUM_BALLS = 0
 let circles: Ball[] = []
 let time = 0
 const physicsConfig: PhysicsConfig = defaultPhysicsConfig
+let profile: PhysicsProfile = createPoolPhysicsProfile()
 
 // Respond to message from parent thread
 self.addEventListener('message', (event: MessageEvent) => {
@@ -36,9 +50,10 @@ self.addEventListener('message', (event: MessageEvent) => {
       TABLE_HEIGHT = request.payload.tableHeight
       TABLE_WIDTH = request.payload.tableWidth
       NUM_BALLS = request.payload.numBalls
+      profile = createProfileByName(request.payload.physicsProfile)
 
       console.time('initCircles')
-      circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random, physicsConfig)
+      circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random, physicsConfig, profile)
       console.timeEnd('initCircles')
       isInitialized = true
       const response: WorkerInitializationResponse = {
@@ -60,7 +75,7 @@ self.addEventListener('message', (event: MessageEvent) => {
     console.log(`Simulating ${NUM_BALLS} balls for ${request.payload.time / 1000} seconds`)
     console.time('simulate')
     if (needsInitialValues) {
-      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig)
+      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig, profile)
       const initialValues = simulatedResults.shift()
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
@@ -72,7 +87,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       console.timeEnd('simulate')
       self.postMessage(response)
     } else {
-      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig)
+      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig, profile)
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
         payload: {

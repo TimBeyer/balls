@@ -1,6 +1,7 @@
 import Ball from './ball'
 import type Vector2D from './vector2d'
 import { PhysicsConfig, defaultPhysicsConfig } from './physics-config'
+import { PhysicsProfile, createPoolPhysicsProfile } from './physics/physics-profile'
 
 const RADIUS = 37.5
 
@@ -10,6 +11,7 @@ export function generateCircles(
   tableHeight: number,
   random: () => number,
   physicsConfig: PhysicsConfig = defaultPhysicsConfig,
+  profile: PhysicsProfile = createPoolPhysicsProfile(),
 ): Ball[] {
   const gap = 10
   const cellSize = RADIUS * 2 + gap
@@ -52,19 +54,20 @@ export function generateCircles(
 
     const velocity: Vector2D = [(random() * 0.7 - random() * 1.4) * 1000, (random() * 0.7 - random() * 1.4) * 1000]
     const ballParams = { ...physicsConfig.defaultBallParams, radius: RADIUS }
-    circles.push(
-      new Ball(
-        [x, y],
-        velocity,
-        RADIUS,
-        0,
-        ballParams.mass,
-        undefined,
-        [0, 0, 0], // no initial spin
-        ballParams,
-        physicsConfig,
-      ),
+    const ball = new Ball(
+      [x, y],
+      velocity,
+      RADIUS,
+      0,
+      ballParams.mass,
+      undefined,
+      [0, 0, 0], // no initial spin
+      ballParams,
+      physicsConfig,
     )
+    // Compute trajectory via the physics profile
+    ball.updateTrajectory(profile, physicsConfig)
+    circles.push(ball)
   }
 
   return circles

@@ -4,6 +4,7 @@ import { generateCircles } from '../generate-circles'
 import Ball from '../ball'
 import { createTestBall, zeroFrictionConfig } from './test-helpers'
 import { defaultPhysicsConfig } from '../physics-config'
+import { createPoolPhysicsProfile } from '../physics/physics-profile'
 
 describe('simulate', () => {
   it('head-on collision: two circles should bounce back', () => {
@@ -287,7 +288,7 @@ describe('simulate', () => {
     ]
     // Give it real physics
     circles[0].physicsParams = { ...defaultPhysicsConfig.defaultBallParams }
-    circles[0].updateTrajectory(defaultPhysicsConfig)
+    circles[0].updateTrajectory(createPoolPhysicsProfile(), defaultPhysicsConfig)
 
     const replay = simulate(2840, 1420, 100000, circles, defaultPhysicsConfig)
 

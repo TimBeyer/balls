@@ -1,9 +1,8 @@
 import type Ball from './ball'
 import { MinHeap } from './min-heap'
 import { SpatialGrid } from './spatial-grid'
-import { smallestPositiveRoot, solveQuadratic } from './polynomial-solver'
 import type { PhysicsConfig } from './physics-config'
-import { StateTransitionEvent, getStateTransitionTime } from './state-transitions'
+import type { PhysicsProfile } from './physics/physics-profile'
 
 export enum Cushion {
   North = 'NORTH',
@@ -33,6 +32,16 @@ export interface CushionCollision extends Collision {
   cushion: Cushion
 }
 
+export interface StateTransitionEvent {
+  type: 'StateTransition'
+  time: number
+  circles: [Ball]
+  fromState: string
+  toState: string
+  epochs: [number]
+  seq: number
+}
+
 /** Scheduled when a circle is predicted to cross into an adjacent spatial grid cell. */
 export interface CellTransitionEvent {
   type: 'CellTransition'
@@ -44,151 +53,6 @@ export interface CellTransitionEvent {
 }
 
 export type TreeEvent = Collision | CellTransitionEvent | StateTransitionEvent
-
-const CUSHIONS = [Cushion.North, Cushion.East, Cushion.South, Cushion.West] as const
-
-/**
- * Compute earliest cushion collision for a ball with quadratic trajectory.
- * For axis-aligned cushions, solve: a*t^2 + b*t + (c - wall) = 0
- */
-export function getCushionCollision(tableWidth: number, tableHeight: number, circle: Ball): CushionCollision {
-  const traj = circle.trajectory
-  const r = circle.radius
-
-  let minDt = Infinity
-  let bestIdx = 0
-
-  // For each wall, find the smallest positive dt where the trajectory intersects.
-  // "Return" collisions (ball decelerates, reverses, comes back) are handled by
-  // epoch-based invalidation — state transitions fire first and make them stale.
-
-  // North wall: y = tableHeight - r
-  const northRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - (tableHeight - r))
-  for (const dt of northRoots) {
-    if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 0
-    }
-  }
-
-  // East wall: x = tableWidth - r
-  const eastRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - (tableWidth - r))
-  for (const dt of eastRoots) {
-    if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 1
-    }
-  }
-
-  // South wall: y = r
-  const southRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - r)
-  for (const dt of southRoots) {
-    if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 2
-    }
-  }
-
-  // West wall: x = r
-  const westRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - r)
-  for (const dt of westRoots) {
-    if (dt > Number.EPSILON && dt < minDt) {
-      minDt = dt
-      bestIdx = 3
-    }
-  }
-
-  return {
-    type: 'Cushion',
-    circles: [circle],
-    cushion: CUSHIONS[bestIdx],
-    time: minDt + circle.time,
-    epochs: [circle.epoch],
-    seq: 0,
-  }
-}
-
-/**
- * Compute ball-ball collision time using quartic polynomial.
- *
- * With quadratic trajectories r_i(t) = a_i*t^2 + b_i*t + c_i,
- * the distance vector d(t) = r_j(t) - r_i(t) = A*t^2 + B*t + C
- * where A, B, C are differences of trajectory coefficients.
- *
- * Collision when |d(t)|^2 = (R_i + R_j)^2 yields a quartic polynomial.
- *
- * Both balls' trajectories are re-referenced to a common time (the later of the two).
- */
-export function getCircleCollisionTime(circleA: Ball, circleB: Ball): number | undefined {
-  // Project both trajectories to the later of their two times
-  const refTime = Math.max(circleA.time, circleB.time)
-  const dtA = refTime - circleA.time
-  const dtB = refTime - circleB.time
-
-  // Evaluate trajectory coefficients at refTime
-  // For ball A: position at refTime is a_A*dtA^2 + b_A*dtA + c_A
-  // New trajectory from refTime: a_A * (t')^2 + (2*a_A*dtA + b_A)*t' + (a_A*dtA^2 + b_A*dtA + c_A)
-  const trajA = circleA.trajectory
-  const trajB = circleB.trajectory
-
-  const rebaseA = rebaseTrajectory(trajA, dtA)
-  const rebaseB = rebaseTrajectory(trajB, dtB)
-
-  // Difference: d(t) = B(t) - A(t) = (aB-aA)*t^2 + (bB-bA)*t + (cB-cA)
-  const Ax = rebaseB.a0 - rebaseA.a0
-  const Ay = rebaseB.a1 - rebaseA.a1
-  const Az = rebaseB.a2 - rebaseA.a2
-  const Bx = rebaseB.b0 - rebaseA.b0
-  const By = rebaseB.b1 - rebaseA.b1
-  const Bz = rebaseB.b2 - rebaseA.b2
-  const Cx = rebaseB.c0 - rebaseA.c0
-  const Cy = rebaseB.c1 - rebaseA.c1
-  const Cz = rebaseB.c2 - rebaseA.c2
-
-  // Check if already overlapping
-  const distSq = Cx * Cx + Cy * Cy + Cz * Cz
-  const rSum = circleA.radius + circleB.radius
-  if (distSq < rSum * rSum) return undefined
-
-  // |d(t)|^2 = (Ri+Rj)^2 expands to quartic:
-  // coeff4 * t^4 + coeff3 * t^3 + coeff2 * t^2 + coeff1 * t + coeff0 = 0
-  const coeff4 = Ax * Ax + Ay * Ay + Az * Az
-  const coeff3 = 2 * (Ax * Bx + Ay * By + Az * Bz)
-  const coeff2 = Bx * Bx + By * By + Bz * Bz + 2 * (Ax * Cx + Ay * Cy + Az * Cz)
-  const coeff1 = 2 * (Bx * Cx + By * Cy + Bz * Cz)
-  const coeff0 = Cx * Cx + Cy * Cy + Cz * Cz - rSum * rSum
-
-  const dt = smallestPositiveRoot([coeff4, coeff3, coeff2, coeff1, coeff0])
-  if (dt === undefined) return undefined
-
-  return dt + refTime
-}
-
-/** Rebase trajectory coefficients to a new origin time offset by dt */
-function rebaseTrajectory(
-  traj: { a: [number, number, number]; b: [number, number, number]; c: [number, number, number] },
-  dt: number,
-) {
-  if (dt === 0) {
-    return {
-      a0: traj.a[0], a1: traj.a[1], a2: traj.a[2],
-      b0: traj.b[0], b1: traj.b[1], b2: traj.b[2],
-      c0: traj.c[0], c1: traj.c[1], c2: traj.c[2],
-    }
-  }
-  // r(t + dt) = a*(t+dt)^2 + b*(t+dt) + c
-  //           = a*t^2 + (2*a*dt + b)*t + (a*dt^2 + b*dt + c)
-  const dt2 = dt * dt
-  return {
-    a0: traj.a[0], a1: traj.a[1], a2: traj.a[2],
-    b0: 2 * traj.a[0] * dt + traj.b[0],
-    b1: 2 * traj.a[1] * dt + traj.b[1],
-    b2: 2 * traj.a[2] * dt + traj.b[2],
-    c0: traj.a[0] * dt2 + traj.b[0] * dt + traj.c[0],
-    c1: traj.a[1] * dt2 + traj.b[1] * dt + traj.c[1],
-    c2: traj.a[2] * dt2 + traj.b[2] * dt + traj.c[2],
-  }
-}
 
 /**
  * Checks whether an event is still valid by comparing each circle's current epoch
@@ -204,6 +68,9 @@ function isEventValid(event: TreeEvent): boolean {
 /**
  * Manages all predicted collision and state transition events using a min-heap
  * priority queue and a spatial grid for neighbor lookups.
+ *
+ * Uses a PhysicsProfile for all detection and state transition logic,
+ * making the event system physics-agnostic.
  *
  * ## Epoch-based lazy invalidation
  *
@@ -225,15 +92,23 @@ export class CollisionFinder {
   private circlesById: Map<string, Ball> = new Map()
   private grid: SpatialGrid
   private physicsConfig: PhysicsConfig
+  private profile: PhysicsProfile
   /** Monotonic counter ensuring deterministic event ordering */
   private nextSeq: number = 0
 
-  constructor(tableWidth: number, tableHeight: number, circles: Ball[], physicsConfig: PhysicsConfig) {
+  constructor(
+    tableWidth: number,
+    tableHeight: number,
+    circles: Ball[],
+    physicsConfig: PhysicsConfig,
+    profile: PhysicsProfile,
+  ) {
     this.heap = new MinHeap<TreeEvent>()
     this.tableWidth = tableWidth
     this.tableHeight = tableHeight
     this.circles = circles
     this.physicsConfig = physicsConfig
+    this.profile = profile
     this.grid = new SpatialGrid(tableWidth, tableHeight, circles.length > 0 ? circles[0].radius * 4 : 150)
 
     this.initialize()
@@ -252,17 +127,17 @@ export class CollisionFinder {
 
   /** Schedule cushion, ball-ball, state transition, and cell transition events for a ball */
   private scheduleAllEvents(circle: Ball, skipBallBall = false) {
-    // Cushion collision
-    const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, circle)
+    // Cushion collision (via detector from profile)
+    const cushionCollision = this.profile.cushionDetector.detect(circle, this.tableWidth, this.tableHeight)
     cushionCollision.seq = this.nextSeq++
     this.heap.push(cushionCollision)
 
-    // Ball-ball collisions with neighbors
+    // Ball-ball collisions with neighbors (via detector from profile)
     if (!skipBallBall) {
       const neighbors = this.grid.getNearbyCircles(circle)
       for (const neighbor of neighbors) {
         if (circle.id >= neighbor.id) continue
-        const time = getCircleCollisionTime(circle, neighbor)
+        const time = this.profile.ballBallDetector.detect(circle, neighbor)
         if (time) {
           const collision: Collision = {
             type: 'Circle',
@@ -276,18 +151,30 @@ export class CollisionFinder {
       }
     }
 
-    // State transition
-    const transition = getStateTransitionTime(circle, this.physicsConfig)
+    // State transition (via motion model from profile)
+    this.scheduleStateTransition(circle)
+
+    // Cell transition
+    this.scheduleNextCellTransition(circle)
+  }
+
+  private scheduleStateTransition(circle: Ball) {
+    const model = this.profile.motionModels.get(circle.motionState)
+    if (!model) return
+
+    const transition = model.getTransitionTime(circle, this.physicsConfig)
     if (transition) {
       const stateEvent: StateTransitionEvent = {
-        ...transition,
+        type: 'StateTransition',
+        time: circle.time + transition.dt,
+        circles: [circle],
+        fromState: circle.motionState,
+        toState: transition.toState,
+        epochs: [circle.epoch],
         seq: this.nextSeq++,
       }
       this.heap.push(stateEvent)
     }
-
-    // Cell transition
-    this.scheduleNextCellTransition(circle)
   }
 
   private scheduleNextCellTransition(circle: Ball) {
@@ -339,9 +226,10 @@ export class CollisionFinder {
         this.grid.moveCircle(circle, event.toCell)
         this.scheduleNextCellTransition(circle)
 
+        // Re-check ball-ball collisions with new neighbors (via profile detector)
         const neighbors = this.grid.getNearbyCircles(circle)
         for (const neighbor of neighbors) {
-          const time = getCircleCollisionTime(circle, neighbor)
+          const time = this.profile.ballBallDetector.detect(circle, neighbor)
           if (time) {
             const collision: Collision = {
               type: 'Circle',
@@ -381,15 +269,19 @@ export class CollisionFinder {
   recompute(circleId: string) {
     const referenceCircle = this.circlesById.get(circleId)!
 
-    // Cushion collision
-    const cushionCollision = getCushionCollision(this.tableWidth, this.tableHeight, referenceCircle)
+    // Cushion collision (via detector from profile)
+    const cushionCollision = this.profile.cushionDetector.detect(
+      referenceCircle,
+      this.tableWidth,
+      this.tableHeight,
+    )
     cushionCollision.seq = this.nextSeq++
     this.heap.push(cushionCollision)
 
-    // Ball-ball collisions with neighbors
+    // Ball-ball collisions with neighbors (via detector from profile)
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
     for (const neighbor of neighbors) {
-      const time = getCircleCollisionTime(referenceCircle, neighbor)
+      const time = this.profile.ballBallDetector.detect(referenceCircle, neighbor)
       if (time) {
         const collision: Collision = {
           type: 'Circle',
@@ -402,15 +294,8 @@ export class CollisionFinder {
       }
     }
 
-    // State transition
-    const transition = getStateTransitionTime(referenceCircle, this.physicsConfig)
-    if (transition) {
-      const stateEvent: StateTransitionEvent = {
-        ...transition,
-        seq: this.nextSeq++,
-      }
-      this.heap.push(stateEvent)
-    }
+    // State transition (via motion model from profile)
+    this.scheduleStateTransition(referenceCircle)
 
     this.scheduleNextCellTransition(referenceCircle)
   }

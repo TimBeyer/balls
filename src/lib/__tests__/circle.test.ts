@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createTestBall } from './test-helpers'
+import { createPoolPhysicsProfile } from '../physics/physics-profile'
+import { defaultPhysicsConfig } from '../physics-config'
 
 describe('Circle (Ball)', () => {
   it('stores position and velocity', () => {
@@ -77,7 +79,7 @@ describe('Circle (Ball)', () => {
     it('handles sequential advances correctly', () => {
       const circle = createTestBall([0, 0], [1, 1], 10, 0)
       circle.advanceTime(5)
-      circle.updateTrajectory({ gravity: 9810, cushionHeight: 0, defaultBallParams: circle.physicsParams })
+      circle.updateTrajectory(createPoolPhysicsProfile(), defaultPhysicsConfig)
       circle.advanceTime(10)
       expect(circle.position[0]).toBeCloseTo(10, 6)
       expect(circle.position[1]).toBeCloseTo(10, 6)

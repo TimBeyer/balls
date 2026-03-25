@@ -5,13 +5,11 @@ import { BallPhysicsParams, PhysicsConfig, defaultBallParams, defaultPhysicsConf
 import {
   TrajectoryCoeffs,
   AngularVelCoeffs,
-  computeTrajectory,
-  computeAngularTrajectory,
   evaluateTrajectory,
   evaluateTrajectoryVelocity,
   evaluateAngularVelocity,
-  determineMotionState,
 } from './trajectory'
+import { PhysicsProfile, createPoolPhysicsProfile } from './physics/physics-profile'
 
 export default class Ball {
   /**
@@ -60,22 +58,13 @@ export default class Ball {
     this.physicsParams = physicsParams ?? { ...defaultBallParams, radius, mass: mass }
 
     const config = physicsConfig ?? defaultPhysicsConfig
-    this.motionState = determineMotionState(this.velocity, this.angularVelocity, this.radius)
-    this.trajectory = computeTrajectory(
-      this.position,
-      this.velocity,
-      this.angularVelocity,
-      this.motionState,
-      this.physicsParams,
-      config,
-    )
-    this.angularTrajectory = computeAngularTrajectory(
-      this.velocity,
-      this.angularVelocity,
-      this.motionState,
-      this.physicsParams,
-      config,
-    )
+    // Use a default pool profile for initial trajectory computation.
+    // Callers should call updateTrajectory() with their desired profile after construction.
+    const profile = createPoolPhysicsProfile()
+    this.motionState = profile.determineMotionState(this.velocity, this.angularVelocity, this.radius)
+    const model = profile.motionModels.get(this.motionState)!
+    this.trajectory = model.computeTrajectory(this, config)
+    this.angularTrajectory = model.computeAngularTrajectory(this, config)
   }
 
   get x() {
@@ -145,24 +134,13 @@ export default class Ball {
 
   /**
    * Recompute trajectory coefficients from current state.
+   * Delegates state determination and trajectory computation to the PhysicsProfile's motion models.
    * Call after any velocity/angular velocity/state change.
    */
-  updateTrajectory(config: PhysicsConfig): void {
-    this.motionState = determineMotionState(this.velocity, this.angularVelocity, this.radius)
-    this.trajectory = computeTrajectory(
-      this.position,
-      this.velocity,
-      this.angularVelocity,
-      this.motionState,
-      this.physicsParams,
-      config,
-    )
-    this.angularTrajectory = computeAngularTrajectory(
-      this.velocity,
-      this.angularVelocity,
-      this.motionState,
-      this.physicsParams,
-      config,
-    )
+  updateTrajectory(profile: PhysicsProfile, config: PhysicsConfig): void {
+    this.motionState = profile.determineMotionState(this.velocity, this.angularVelocity, this.radius)
+    const model = profile.motionModels.get(this.motionState)!
+    this.trajectory = model.computeTrajectory(this, config)
+    this.angularTrajectory = model.computeAngularTrajectory(this, config)
   }
 }

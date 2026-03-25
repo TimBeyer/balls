@@ -3,10 +3,13 @@ export enum RequestMessageType {
   'REQUEST_SIMULATION_DATA',
 }
 
+import type { PhysicsProfileName } from './config'
+
 export interface InitializationRequestPayload {
   numBalls: number
   tableWidth: number
   tableHeight: number
+  physicsProfile: PhysicsProfileName
 }
 
 export interface SimulationRequestPayload {
