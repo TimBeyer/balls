@@ -16,7 +16,8 @@ import { defaultPhysicsConfig } from './lib/physics-config'
 
 const config = createConfig()
 
-const PRECALC = 10000
+// Buffer ahead in seconds (physics uses seconds as time unit)
+const PRECALC = 10
 
 let worker: Worker | null = null
 let state: { [key: string]: Ball } = {}
@@ -179,7 +180,8 @@ function initScene() {
 
     if (!start) start = timestamp
 
-    const progress = (timestamp - start) * config.simulationSpeed
+    // Convert ms timestamp to seconds to match physics time units
+    const progress = ((timestamp - start) / 1000) * config.simulationSpeed
 
     if (nextEvent) {
       const lastEvent = simulatedResults[simulatedResults.length - 1]
