@@ -257,6 +257,27 @@ export function simulate(
       }
 
       ball.updateTrajectory(physicsConfig)
+
+      // Clamp perpendicular acceleration to prevent spin friction from pushing
+      // ball back through the wall. After a cushion bounce with high spin, the
+      // friction can accelerate the ball back into the wall faster than it
+      // moves away (vy ≈ 0). Without clamping, the trajectory overshoots the
+      // wall boundary before any event can intervene.
+      // This approximates the ball "rolling along the rail."
+      switch (cc.cushion) {
+        case Cushion.North:
+          if (ball.trajectory.a[1] > 0) ball.trajectory.a[1] = 0
+          break
+        case Cushion.South:
+          if (ball.trajectory.a[1] < 0) ball.trajectory.a[1] = 0
+          break
+        case Cushion.East:
+          if (ball.trajectory.a[0] > 0) ball.trajectory.a[0] = 0
+          break
+        case Cushion.West:
+          if (ball.trajectory.a[0] < 0) ball.trajectory.a[0] = 0
+          break
+      }
     } else {
       // Ball-ball collision: elastic with mass support
       const c1 = event.circles[0]

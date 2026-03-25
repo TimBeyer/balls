@@ -58,54 +58,43 @@ export function getCushionCollision(tableWidth: number, tableHeight: number, cir
   let minDt = Infinity
   let bestIdx = 0
 
-  // For each wall, solve the quadratic and verify the ball is moving TOWARD the wall at dt.
-  // This prevents false detections when a ball is at the wall but moving away (dt≈0).
+  // For each wall, find the smallest positive dt where the trajectory intersects.
+  // "Return" collisions (ball decelerates, reverses, comes back) are handled by
+  // epoch-based invalidation — state transitions fire first and make them stale.
 
-  // North wall: y = tableHeight - r (ball must be moving in +y direction)
+  // North wall: y = tableHeight - r
   const northRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - (tableHeight - r))
   for (const dt of northRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      const vy = 2 * traj.a[1] * dt + traj.b[1]
-      if (vy > 0) {
-        minDt = dt
-        bestIdx = 0
-      }
+      minDt = dt
+      bestIdx = 0
     }
   }
 
-  // East wall: x = tableWidth - r (ball must be moving in +x direction)
+  // East wall: x = tableWidth - r
   const eastRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - (tableWidth - r))
   for (const dt of eastRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      const vx = 2 * traj.a[0] * dt + traj.b[0]
-      if (vx > 0) {
-        minDt = dt
-        bestIdx = 1
-      }
+      minDt = dt
+      bestIdx = 1
     }
   }
 
-  // South wall: y = r (ball must be moving in -y direction)
+  // South wall: y = r
   const southRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - r)
   for (const dt of southRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      const vy = 2 * traj.a[1] * dt + traj.b[1]
-      if (vy < 0) {
-        minDt = dt
-        bestIdx = 2
-      }
+      minDt = dt
+      bestIdx = 2
     }
   }
 
-  // West wall: x = r (ball must be moving in -x direction)
+  // West wall: x = r
   const westRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - r)
   for (const dt of westRoots) {
     if (dt > Number.EPSILON && dt < minDt) {
-      const vx = 2 * traj.a[0] * dt + traj.b[0]
-      if (vx < 0) {
-        minDt = dt
-        bestIdx = 3
-      }
+      minDt = dt
+      bestIdx = 3
     }
   }
 

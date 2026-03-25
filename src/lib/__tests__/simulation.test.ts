@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { simulate, EventType } from '../simulation'
 import { generateCircles } from '../generate-circles'
+import Ball from '../ball'
 import { createTestBall, zeroFrictionConfig } from './test-helpers'
 import { defaultPhysicsConfig } from '../physics-config'
 
@@ -134,6 +135,52 @@ describe('simulate', () => {
     for (let i = 1; i < replay.length; i++) {
       expect(replay[i].time).toBeGreaterThanOrEqual(replay[i - 1].time)
     }
+  })
+
+  it('balls stay within bounds with friction', () => {
+    const tableWidth = 2840
+    const tableHeight = 1420
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    const balls = [
+      new Ball([200, 200], [1000, 500], R, 0, params.mass, 'a', [0, 0, 0], params, defaultPhysicsConfig),
+      new Ball([1500, 700], [-800, 600], R, 0, params.mass, 'b', [0, 0, 0], params, defaultPhysicsConfig),
+      new Ball([2600, 1200], [-300, -900], R, 0, params.mass, 'c', [0, 0, 0], params, defaultPhysicsConfig),
+    ]
+    const replay = simulate(tableWidth, tableHeight, 60, balls, defaultPhysicsConfig)
+
+    for (const event of replay) {
+      for (const snap of event.snapshots) {
+        expect(snap.position[0]).toBeGreaterThanOrEqual(R - 1)
+        expect(snap.position[0]).toBeLessThanOrEqual(tableWidth - R + 1)
+        expect(snap.position[1]).toBeGreaterThanOrEqual(R - 1)
+        expect(snap.position[1]).toBeLessThanOrEqual(tableHeight - R + 1)
+      }
+    }
+
+    // Should have cushion collisions
+    const cushionHits = replay.filter((r) => r.type === EventType.CushionCollision)
+    expect(cushionHits.length).toBeGreaterThan(0)
+  })
+
+  it('ball-ball collisions work with friction', () => {
+    const R = 37.5
+    const params = { ...defaultPhysicsConfig.defaultBallParams, radius: R }
+    const balls = [
+      new Ball([500, 500], [800, 0], R, 0, params.mass, 'a', [0, 0, 0], params, defaultPhysicsConfig),
+      new Ball([800, 500], [-800, 0], R, 0, params.mass, 'b', [0, 0, 0], params, defaultPhysicsConfig),
+    ]
+    const replay = simulate(2840, 1420, 30, balls, defaultPhysicsConfig)
+    const collisions = replay.filter((r) => r.type === EventType.CircleCollision)
+    expect(collisions.length).toBeGreaterThanOrEqual(1)
+
+    // At collision, balls should be touching (not overlapping)
+    const first = collisions[0]
+    const [s1, s2] = first.snapshots
+    const dx = s1.position[0] - s2.position[0]
+    const dy = s1.position[1] - s2.position[1]
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    expect(dist).toBeCloseTo(R * 2, 0)
   })
 
   it('balls eventually come to rest with friction', () => {
