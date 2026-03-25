@@ -265,8 +265,15 @@ export class CollisionFinder {
    * After a circle's velocity/state changes, predict its new events.
    * Old events for this circle are not removed — they will be lazily skipped
    * via epoch mismatch in pop().
+   *
+   * @param skipPairId — skip ball-ball detection against this ball (the ball we just
+   *   collided with). After a collision, both balls are at touching distance and the
+   *   Sliding acceleration can push them back together in nanoseconds, creating an
+   *   infinite collision loop (Zeno / resting contact problem). The pair will be
+   *   re-checked naturally when either ball's trajectory changes from a state transition
+   *   or collision with another ball.
    */
-  recompute(circleId: string) {
+  recompute(circleId: string, skipPairId?: string) {
     const referenceCircle = this.circlesById.get(circleId)!
 
     // Cushion collision (via detector from profile)
@@ -284,6 +291,7 @@ export class CollisionFinder {
     // Ball-ball collisions with neighbors (via detector from profile)
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
     for (const neighbor of neighbors) {
+      if (neighbor.id === skipPairId) continue
       const time = this.profile.ballBallDetector.detect(referenceCircle, neighbor)
       if (time) {
         const collision: Collision = {

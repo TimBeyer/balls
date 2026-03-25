@@ -15,35 +15,12 @@ function seededRandom() {
   }
 }
 
-function analyzePhantoms(replay: ReturnType<typeof simulate>, label: string) {
-  let phantomCount = 0
-  let realCount = 0
-  let maxGap = 0
-
-  for (const e of replay) {
-    if (e.type !== EventType.CircleCollision) continue
-    const s0 = e.snapshots[0]
-    const s1 = e.snapshots[1]
-    const dx = s0.position[0] - s1.position[0]
-    const dy = s0.position[1] - s1.position[1]
-    const dist = Math.sqrt(dx * dx + dy * dy)
-    const gap = dist - s0.radius - s1.radius
-    if (gap > 0.05) {
-      phantomCount++
-      maxGap = Math.max(maxGap, gap)
-    } else {
-      realCount++
-    }
-  }
-  console.log(`${label}: real=${realCount} phantom=${phantomCount} maxGap=${maxGap.toFixed(4)}mm`)
-}
-
 it('phantom check — zero friction (no contact filter)', { timeout: 30000 }, () => {
   // Temporarily measure gap at collision time WITHOUT the contact verification filter
   const circles = generateCircles(150, 2840, 1420, seededRandom(), zeroFrictionConfig)
   const replay = simulate(2840, 1420, 5, circles, zeroFrictionConfig)
   let maxGap = 0
-  let gapBuckets = { sub001: 0, sub01: 0, sub05: 0, sub1: 0, over1: 0 }
+  const gapBuckets = { sub001: 0, sub01: 0, sub05: 0, sub1: 0, over1: 0 }
   for (const e of replay) {
     if (e.type !== EventType.CircleCollision) continue
     const s0 = e.snapshots[0]
@@ -71,7 +48,7 @@ it('phantom check — pool physics (no contact filter)', { timeout: 30000 }, () 
   const circles = generateCircles(150, 2840, 1420, seededRandom(), defaultPhysicsConfig, profile)
   const replay = simulate(2840, 1420, 5, circles, defaultPhysicsConfig, profile)
   let maxGap = 0
-  let gapBuckets = { sub001: 0, sub01: 0, sub05: 0, sub1: 0, over1: 0 }
+  const gapBuckets = { sub001: 0, sub01: 0, sub05: 0, sub1: 0, over1: 0 }
   for (const e of replay) {
     if (e.type !== EventType.CircleCollision) continue
     const s0 = e.snapshots[0]

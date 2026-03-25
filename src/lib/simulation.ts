@@ -179,24 +179,6 @@ export function simulate(
       const c1 = event.circles[0]
       const c2 = event.circles[1]
 
-      // Contact verification: quadratic trajectory approximation (especially for Rolling
-      // with spin) can diverge from the true path, causing the quartic to predict contact
-      // at a time when the balls are actually millimeters apart. Skip phantom collisions.
-      const dx = c1.position[0] - c2.position[0]
-      const dy = c1.position[1] - c2.position[1]
-      const dz = c1.position[2] - c2.position[2]
-      const distSq = dx * dx + dy * dy + dz * dz
-      const rSum = c1.radius + c2.radius
-      const CONTACT_TOLERANCE = 0.05 // mm — max allowed gap for a valid collision
-      const gap = Math.sqrt(distSq) - rSum
-      if (gap > CONTACT_TOLERANCE) {
-        // Phantom collision — balls aren't actually touching. Recompute with fresh trajectories.
-        for (const circle of event.circles) {
-          collisionFinder.recompute(circle.id)
-        }
-        continue
-      }
-
       // Delegate to the ball collision resolver
       profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
 
@@ -222,8 +204,18 @@ export function simulate(
 
     replay.push(replayData)
 
-    for (const circle of event.circles) {
-      collisionFinder.recompute(circle.id)
+    if (event.type === 'Circle') {
+      // After ball-ball collision, skip re-predicting the same pair.
+      // They're at touching distance and Sliding acceleration can push them back
+      // together in nanoseconds (Zeno problem). The pair will be re-checked when
+      // either ball's trajectory changes from a state transition or another collision.
+      const [c1, c2] = event.circles
+      collisionFinder.recompute(c1.id, c2.id)
+      collisionFinder.recompute(c2.id, c1.id)
+    } else {
+      for (const circle of event.circles) {
+        collisionFinder.recompute(circle.id)
+      }
     }
   }
   return replay
