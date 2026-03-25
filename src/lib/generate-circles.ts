@@ -1,5 +1,6 @@
-import Circle from './circle'
+import Ball from './ball'
 import type Vector2D from './vector2d'
+import { PhysicsConfig, defaultPhysicsConfig } from './physics-config'
 
 const RADIUS = 37.5
 
@@ -8,7 +9,8 @@ export function generateCircles(
   tableWidth: number,
   tableHeight: number,
   random: () => number,
-): Circle[] {
+  physicsConfig: PhysicsConfig = defaultPhysicsConfig,
+): Ball[] {
   const gap = 10
   const cellSize = RADIUS * 2 + gap
   const maxJitter = gap / 2
@@ -36,7 +38,7 @@ export function generateCircles(
     cellIndices[j] = tmp
   }
 
-  const circles: Circle[] = []
+  const circles: Ball[] = []
   for (let i = 0; i < count; i++) {
     const cellIndex = cellIndices[i]
     const row = Math.floor(cellIndex / cols)
@@ -49,7 +51,20 @@ export function generateCircles(
     const y = cy + (random() * 2 - 1) * maxJitter
 
     const velocity: Vector2D = [random() * 0.7 - random() * 1.4, random() * 0.7 - random() * 1.4]
-    circles.push(new Circle([x, y], velocity, RADIUS, 0))
+    const ballParams = { ...physicsConfig.defaultBallParams, radius: RADIUS }
+    circles.push(
+      new Ball(
+        [x, y],
+        velocity,
+        RADIUS,
+        0,
+        ballParams.mass,
+        undefined,
+        [0, 0, 0], // no initial spin
+        ballParams,
+        physicsConfig,
+      ),
+    )
   }
 
   return circles

@@ -1,4 +1,4 @@
-import Circle from './lib/circle'
+import Ball from './lib/ball'
 import { ReplayData } from './lib/simulation'
 import Renderer from './lib/renderers/renderer'
 import CircleRenderer from './lib/renderers/circle-renderer'
@@ -12,15 +12,16 @@ import { WorkerInitializationRequest, RequestMessageType } from './lib/worker-re
 import { WorkerResponse, isWorkerInitializationResponse, isWorkerSimulationResponse } from './lib/worker-response'
 import { createConfig, SimulationConfig } from './lib/config'
 import { createUI } from './lib/ui'
+import { defaultPhysicsConfig } from './lib/physics-config'
 
 const config = createConfig()
 
 const PRECALC = 10000
 
 let worker: Worker | null = null
-let state: { [key: string]: Circle } = {}
+let state: { [key: string]: Ball } = {}
 let circleIds: string[] = []
-let replayCircles: Circle[] = []
+let replayCircles: Ball[] = []
 let nextEvent: ReplayData | undefined
 let simulatedResults: ReplayData[] = []
 let fetchingMore = false
@@ -104,15 +105,25 @@ function startSimulation() {
       const results = response.payload.data
       if (response.payload.initialValues) {
         state = response.payload.initialValues.snapshots.reduce(
-          (circles: { [key: string]: Circle }, snapshot) => {
-            circles[snapshot.id] = new Circle(
+          (circles: { [key: string]: Ball }, snapshot) => {
+            const ball = new Ball(
               snapshot.position,
               snapshot.velocity,
               snapshot.radius,
               snapshot.time,
-              100,
+              defaultPhysicsConfig.defaultBallParams.mass,
               snapshot.id,
+              snapshot.angularVelocity,
             )
+            // Apply trajectory acceleration from snapshot for correct interpolation
+            if (snapshot.trajectoryA) {
+              ball.trajectory.a[0] = snapshot.trajectoryA[0]
+              ball.trajectory.a[1] = snapshot.trajectoryA[1]
+            }
+            if (snapshot.motionState) {
+              ball.motionState = snapshot.motionState
+            }
+            circles[snapshot.id] = ball
             return circles
           },
           {},
@@ -189,7 +200,29 @@ function initScene() {
     while (nextEvent && progress >= nextEvent.time) {
       for (const snapshot of nextEvent.snapshots) {
         const circle = state[snapshot.id]
-        Object.assign(circle, snapshot)
+        // Update ball state from snapshot
+        circle.position[0] = snapshot.position[0]
+        circle.position[1] = snapshot.position[1]
+        circle.velocity[0] = snapshot.velocity[0]
+        circle.velocity[1] = snapshot.velocity[1]
+        circle.radius = snapshot.radius
+        circle.time = snapshot.time
+        // Update new fields
+        if (snapshot.angularVelocity) {
+          circle.angularVelocity = [...snapshot.angularVelocity]
+        }
+        if (snapshot.motionState) {
+          circle.motionState = snapshot.motionState
+        }
+        if (snapshot.trajectoryA) {
+          circle.trajectory.a[0] = snapshot.trajectoryA[0]
+          circle.trajectory.a[1] = snapshot.trajectoryA[1]
+        }
+        // Update trajectory b (velocity) and c (position) for correct interpolation
+        circle.trajectory.b[0] = snapshot.velocity[0]
+        circle.trajectory.b[1] = snapshot.velocity[1]
+        circle.trajectory.c[0] = snapshot.position[0]
+        circle.trajectory.c[1] = snapshot.position[1]
       }
 
       for (const circleId of circleIds) {

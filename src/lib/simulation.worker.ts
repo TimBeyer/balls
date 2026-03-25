@@ -2,7 +2,8 @@ import { isWorkerInitializationRequest, isWorkerSimulationRequest } from './work
 import { ResponseMessageType, WorkerInitializationResponse, WorkerSimulationResponse } from './worker-response'
 import { generateCircles } from './generate-circles'
 import { simulate } from './simulation'
-import type Circle from './circle'
+import type Ball from './ball'
+import { defaultPhysicsConfig, PhysicsConfig } from './physics-config'
 
 declare const self: DedicatedWorkerGlobalScope
 
@@ -10,8 +11,9 @@ let isInitialized = false
 let TABLE_HEIGHT = 0
 let TABLE_WIDTH = 0
 let NUM_BALLS = 0
-let circles: Circle[] = []
+let circles: Ball[] = []
 let time = 0
+const physicsConfig: PhysicsConfig = defaultPhysicsConfig
 
 // Respond to message from parent thread
 self.addEventListener('message', (event: MessageEvent) => {
@@ -36,7 +38,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       NUM_BALLS = request.payload.numBalls
 
       console.time('initCircles')
-      circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random)
+      circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random, physicsConfig)
       console.timeEnd('initCircles')
       isInitialized = true
       const response: WorkerInitializationResponse = {
@@ -58,7 +60,7 @@ self.addEventListener('message', (event: MessageEvent) => {
     console.log(`Simulating ${NUM_BALLS} balls for ${request.payload.time / 1000} seconds`)
     console.time('simulate')
     if (needsInitialValues) {
-      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles)
+      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig)
       const initialValues = simulatedResults.shift()
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
@@ -70,7 +72,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       console.timeEnd('simulate')
       self.postMessage(response)
     } else {
-      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles)
+      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig)
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
         payload: {
