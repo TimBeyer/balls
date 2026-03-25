@@ -13,8 +13,8 @@
  * This creates an angled impulse that transfers energy between linear and angular velocity,
  * and can give the ball a vertical velocity component (ball jumps).
  *
- * Post-collision velocities and angular velocities are ABSOLUTE values (not deltas).
- * Angular velocity is computed from the post-collision linear velocity.
+ * Post-collision velocities are computed as impulse-based DELTAS added to initial values.
+ * Angular velocity deltas are derived from the impulse vector.
  *
  * Also handles:
  * - Boundary snapping (prevent floating-point escape)
@@ -63,6 +63,7 @@ export class Han2005CushionResolver implements CushionCollisionResolver {
 
     const vx = ball.velocity[0]
     const vy = ball.velocity[1]
+    const vz = ball.velocity[2]
     const wx = ball.angularVelocity[0]
     const wy = ball.angularVelocity[1]
     const wz = ball.angularVelocity[2]
@@ -92,49 +93,54 @@ export class Han2005CushionResolver implements CushionCollisionResolver {
         break
     }
 
-    // Han 2005 intermediate quantities (reference: pooltool theory)
+    // Han 2005 intermediate quantities (reference: pooltool source)
     // c = component of velocity along contact normal
     // sx, sy = sliding velocity components at the contact point
+    // Note: sx uses vz (vertical), NOT vPar — matching the reference implementation
     const c = vPerp * cosTheta
-    const sx = vPerp * sinTheta - vPar * cosTheta + R * omegaYRef
+    const sx = vPerp * sinTheta - vz * cosTheta + R * omegaYRef
     const sy = -vPar - R * wz * cosTheta + R * omegaXRef * sinTheta
 
     const Pze = ball.physicsParams.mass * c * (1 + e)
     const sNorm = Math.sqrt(sx * sx + sy * sy)
     const Pzs = (2 * ball.physicsParams.mass / 7) * sNorm
 
-    // Post-collision velocities (ABSOLUTE values in reference frame)
+    // Post-collision velocities (impulse-based DELTAS added to initial velocity)
     let newVPerp: number, newVPar: number, newVZ: number
+    // Angular velocity deltas from impulse: Δω = (R × J) / I
+    let newOmegaXRef: number, newOmegaYRef: number, newOmegaZ: number
 
     if (sNorm < 1e-12 || Pzs <= Pze) {
       // No-sliding case: friction is sufficient to prevent sliding
-      // Formulas are impulse-based DELTAS added to initial velocity
       newVPerp = vPerp - (2 / 7) * sx * sinTheta - (1 + e) * c * cosTheta
       newVPar = vPar + (2 / 7) * sy
-      newVZ = (2 / 7) * sx * cosTheta - (1 + e) * c * sinTheta
+      newVZ = vz + (2 / 7) * sx * cosTheta - (1 + e) * c * sinTheta
+
+      // Angular velocity deltas for no-sliding: Δω from impulse (R/I factor = 5/(7R))
+      const angFactor = 5 / (7 * R)
+      newOmegaXRef = omegaXRef - angFactor * sy * sinTheta
+      newOmegaYRef = omegaYRef - angFactor * sx
+      newOmegaZ = wz + angFactor * sy * cosTheta
     } else {
       // Full sliding case: friction is Coulomb-limited
-      // Formulas are impulse-based DELTAS added to initial velocity
       const mu = Pze / (ball.physicsParams.mass * sNorm)
       const cosPhi = sx / sNorm
       const sinPhi = sy / sNorm
 
       newVPerp = vPerp - c * (1 + e) * (mu * cosPhi * sinTheta + cosTheta)
       newVPar = vPar + c * (1 + e) * mu * sinPhi
-      newVZ = c * (1 + e) * (mu * cosPhi * cosTheta - sinTheta)
+      newVZ = vz + c * (1 + e) * (mu * cosPhi * cosTheta - sinTheta)
+
+      // Angular velocity deltas for sliding: Δω from impulse
+      const angFactor2 = I_factor * c * (1 + e)
+      newOmegaXRef = omegaXRef - angFactor2 * mu * sinPhi * sinTheta
+      newOmegaYRef = omegaYRef - angFactor2 * mu * cosPhi
+      newOmegaZ = wz + angFactor2 * mu * sinPhi * cosTheta
     }
 
-    // vZ starts at 0 (ball on table). Only positive values make the ball airborne.
-    // Negative means cushion pushes ball into table — table normal force prevents this.
+    // Only positive vZ makes the ball airborne. Negative means cushion pushes
+    // ball into table — table normal force prevents this.
     newVZ = Math.max(0, newVZ)
-
-    // Angular velocity: ABSOLUTE values computed from post-collision linear velocity
-    // ω_x_ref = -(mR/I) * v_perp * sinθ
-    // ω_y_ref = (mR/I) * (v_perp * sinθ - v_z * cosθ)
-    // ω_z     = (mR/I) * v_par * cosθ
-    const newOmegaXRef = -I_factor * newVPerp * sinTheta
-    const newOmegaYRef = I_factor * (newVPerp * sinTheta - newVZ * cosTheta)
-    const newOmegaZ = I_factor * newVPar * cosTheta
 
     // Map back to world frame
     // Perpendicular velocity must point away from wall (negative in ref frame = away)
