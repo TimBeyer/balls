@@ -91,7 +91,7 @@ export class SlidingMotion implements MotionModel {
     const slidingAngDecel = (5 * params.muSliding * g) / (2 * R)
 
     return {
-      alpha: [slidingAngDecel * uHatY, -slidingAngDecel * uHatX, -spinDecel * omegaZSign],
+      alpha: [-slidingAngDecel * uHatY, slidingAngDecel * uHatX, -spinDecel * omegaZSign],
       omega0: [ball.angularVelocity[0], ball.angularVelocity[1], ball.angularVelocity[2]],
     }
   }
