@@ -56,11 +56,31 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const Cy = rebaseB.c1 - rebaseA.c1
     const Cz = rebaseB.c2 - rebaseA.c2
 
-    // Overlap guard — skip if balls already overlap (the quartic would find the
-    // "separation" time and fire a backwards collision)
+    // Overlap / contact guard
     const distSq = Cx * Cx + Cy * Cy + Cz * Cz
     const rSum = circleA.radius + circleB.radius
-    if (distSq < rSum * rSum) return undefined
+    const rSumSq = rSum * rSum
+
+    // Skip if balls already significantly overlap — the quartic would find the
+    // "separation" time and fire a backwards collision
+    if (distSq < rSumSq) return undefined
+
+    // Contact guard: when balls are exactly at (or very near) touching distance
+    // and approaching, the quartic polynomial has a root at t ≈ 0 which
+    // smallestPositiveRoot filters out (requires t > 1e-9). Without this guard
+    // the detector returns the *separation* time, causing pass-through.
+    // This occurs when simultaneous collisions are processed sequentially —
+    // the first collision leaves a neighbor exactly at contact distance.
+    const CONTACT_TOL = 0.01 // mm
+    if (distSq < (rSum + CONTACT_TOL) * (rSum + CONTACT_TOL)) {
+      const approachDot = Cx * Bx + Cy * By + Cz * Bz
+      if (approachDot < 0) {
+        return refTime // collision is happening now
+      }
+      // At contact but separating — no collision; skip quartic since its
+      // near-zero root would give incorrect results
+      return undefined
+    }
 
     // Quartic coefficients
     const coeff4 = Ax * Ax + Ay * Ay + Az * Az

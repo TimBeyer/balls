@@ -94,6 +94,12 @@ export function simulate(
   // Check if all balls are stationary
   const allStationary = () => circles.every((b) => b.motionState === MotionState.Stationary)
 
+  // Track same-time pair resolutions to prevent oscillation in dense clusters.
+  // When a pair is resolved more than twice at the same time (contact chain
+  // bouncing back and forth), force inelastic resolution to guarantee convergence.
+  let sameTimePairs = new Map<string, number>()
+  let lastCollisionTime = -Infinity
+
   while (currentTime < time && !allStationary()) {
     const event = collisionFinder.pop()
 
@@ -197,8 +203,33 @@ export function simulate(
         c2.position[1] -= ny * half
       }
 
-      // Delegate to the ball collision resolver
-      profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
+      // Track same-time pair resolutions to break oscillations in dense clusters
+      if (Math.abs(event.time - lastCollisionTime) > 1e-12) {
+        sameTimePairs = new Map()
+        lastCollisionTime = event.time
+      }
+      const pairKey =
+        c1.id < c2.id ? c1.id + '\0' + c2.id : c2.id + '\0' + c1.id
+      const pairCount = (sameTimePairs.get(pairKey) || 0) + 1
+      sameTimePairs.set(pairKey, pairCount)
+
+      if (pairCount > 2) {
+        // This pair has oscillated — force inelastic (COM velocity along normal)
+        // to guarantee convergence
+        const d = dist || 1
+        const nx2 = dx / d
+        const ny2 = dy / d
+        const v1n = c1.velocity[0] * nx2 + c1.velocity[1] * ny2
+        const v2n = c2.velocity[0] * nx2 + c2.velocity[1] * ny2
+        const comVn = (c1.mass * v1n + c2.mass * v2n) / (c1.mass + c2.mass)
+        c1.velocity[0] += (comVn - v1n) * nx2
+        c1.velocity[1] += (comVn - v1n) * ny2
+        c2.velocity[0] += (comVn - v2n) * nx2
+        c2.velocity[1] += (comVn - v2n) * ny2
+      } else {
+        // Normal resolution via physics profile
+        profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
+      }
 
       c1.updateTrajectory(profile, physicsConfig)
       c2.updateTrajectory(profile, physicsConfig)
