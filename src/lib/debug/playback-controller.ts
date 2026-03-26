@@ -25,6 +25,13 @@ export class PlaybackController {
     this._frozenProgress = value
   }
 
+  reset(): void {
+    this._paused = false
+    this._frozenProgress = 0
+    this._stepRequested = false
+    this._stepBackRequested = false
+  }
+
   togglePause(currentProgress: number): void {
     this._paused = !this._paused
     if (this._paused) {

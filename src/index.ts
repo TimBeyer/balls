@@ -120,6 +120,8 @@ function startSimulation() {
   simulationScene = null
   eventHistory = []
   initialBallStates = null
+  currentProgress = 0
+  playbackController.reset()
   // New canvas
   canvas2D = createCanvas(config)
 
