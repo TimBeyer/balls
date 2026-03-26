@@ -97,6 +97,11 @@ export class CollisionFinder {
   /** Monotonic counter ensuring deterministic event ordering */
   private nextSeq: number = 0
 
+  /** Spatial grid for neighbor lookups — exposed for contact resolution */
+  get spatialGrid(): SpatialGrid {
+    return this.grid
+  }
+
   constructor(
     tableWidth: number,
     tableHeight: number,

@@ -7,6 +7,7 @@ import type { PhysicsProfile } from './physics/physics-profile'
 import { createPoolPhysicsProfile } from './physics/physics-profile'
 import type Vector3D from './vector3d'
 import type { Han2005CushionResolver } from './physics/collision/han2005-cushion-resolver'
+import { resolveContacts } from './physics/collision/contact-resolver'
 
 export interface CircleSnapshot {
   id: string
@@ -94,12 +95,6 @@ export function simulate(
   // Check if all balls are stationary
   const allStationary = () => circles.every((b) => b.motionState === MotionState.Stationary)
 
-  // Track same-time pair resolutions to prevent oscillation in dense clusters.
-  // When a pair is resolved more than twice at the same time (contact chain
-  // bouncing back and forth), force inelastic resolution to guarantee convergence.
-  let sameTimePairs = new Map<string, number>()
-  let lastCollisionTime = -Infinity
-
   while (currentTime < time && !allStationary()) {
     const event = collisionFinder.pop()
 
@@ -119,11 +114,9 @@ export function simulate(
       }
       ball.motionState = stateEvent.toState as MotionState
 
-      // When an airborne ball lands, it may have flown past the table boundary.
-      // Clamp position back to within bounds (the ball landed on the rail in reality).
-      if (stateEvent.fromState === String(MotionState.Airborne)) {
-        clampToBounds(ball, tableWidth, tableHeight)
-      }
+      // Clamp position to within bounds — airborne balls may have flown past the
+      // boundary, and contact resolution can push balls slightly past walls.
+      clampToBounds(ball, tableWidth, tableHeight)
 
       ball.updateTrajectory(profile, physicsConfig)
       currentTime = stateEvent.time
@@ -203,36 +196,69 @@ export function simulate(
         c2.position[1] -= ny * half
       }
 
-      // Track same-time pair resolutions to break oscillations in dense clusters
-      if (Math.abs(event.time - lastCollisionTime) > 1e-12) {
-        sameTimePairs = new Map()
-        lastCollisionTime = event.time
-      }
-      const pairKey =
-        c1.id < c2.id ? c1.id + '\0' + c2.id : c2.id + '\0' + c1.id
-      const pairCount = (sameTimePairs.get(pairKey) || 0) + 1
-      sameTimePairs.set(pairKey, pairCount)
-
-      if (pairCount > 2) {
-        // This pair has oscillated — force inelastic (COM velocity along normal)
-        // to guarantee convergence
-        const d = dist || 1
-        const nx2 = dx / d
-        const ny2 = dy / d
-        const v1n = c1.velocity[0] * nx2 + c1.velocity[1] * ny2
-        const v2n = c2.velocity[0] * nx2 + c2.velocity[1] * ny2
-        const comVn = (c1.mass * v1n + c2.mass * v2n) / (c1.mass + c2.mass)
-        c1.velocity[0] += (comVn - v1n) * nx2
-        c1.velocity[1] += (comVn - v1n) * ny2
-        c2.velocity[0] += (comVn - v2n) * nx2
-        c2.velocity[1] += (comVn - v2n) * ny2
-      } else {
-        // Normal resolution via physics profile
-        profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
-      }
-
+      profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
       c1.updateTrajectory(profile, physicsConfig)
       c2.updateTrajectory(profile, physicsConfig)
+      clampToBounds(c1, tableWidth, tableHeight)
+      clampToBounds(c2, tableWidth, tableHeight)
+
+      // Wall clamping may have re-introduced overlap. Iteratively push apart.
+      for (let sep = 0; sep < 3; sep++) {
+        const dx2 = c1.position[0] - c2.position[0]
+        const dy2 = c1.position[1] - c2.position[1]
+        const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+        const rSum2 = c1.radius + c2.radius
+        if (dist2 <= 0 || dist2 >= rSum2) break
+        const overlap = rSum2 - dist2
+        const nx2 = dx2 / dist2
+        const ny2 = dy2 / dist2
+        c1.position[0] += nx2 * overlap
+        c1.position[1] += ny2 * overlap
+        c2.position[0] -= nx2 * overlap
+        c2.position[1] -= ny2 * overlap
+        clampToBounds(c1, tableWidth, tableHeight)
+        clampToBounds(c2, tableWidth, tableHeight)
+      }
+
+      currentTime = event.time
+
+      // Record primary collision BEFORE contact resolution (which may move c1/c2)
+      replay.push({
+        time: currentTime,
+        type: EventType.CircleCollision,
+        snapshots: event.circles.map(snapshotBall),
+      })
+
+      // Contact resolution: handle all instant cascading contacts inline,
+      // outside the event queue. This prevents epoch invalidation from
+      // causing missed collisions when multiple balls collide simultaneously.
+      const contactResult = resolveContacts(
+        [c1, c2],
+        circles.length,
+        collisionFinder.spatialGrid,
+        profile.ballCollisionResolver,
+        profile,
+        physicsConfig,
+        event.time,
+        tableWidth,
+        tableHeight,
+      )
+
+      // Record contact chain collisions
+      for (const contactEvent of contactResult.replayEvents) {
+        replay.push({
+          time: contactEvent.time,
+          type: EventType.CircleCollision,
+          snapshots: contactEvent.snapshots,
+        })
+      }
+
+      // Recompute for ALL affected balls (primary + contact chain)
+      const allAffected = new Set([c1, c2, ...contactResult.affectedBalls])
+      for (const ball of allAffected) {
+        collisionFinder.recompute(ball.id)
+      }
+      continue
     }
 
     // Clamp non-airborne balls that may have drifted past table bounds while airborne
