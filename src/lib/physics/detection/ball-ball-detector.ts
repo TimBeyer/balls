@@ -56,7 +56,8 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const Cy = rebaseB.c1 - rebaseA.c1
     const Cz = rebaseB.c2 - rebaseA.c2
 
-    // Overlap guard — skip if balls overlap (already colliding)
+    // Overlap guard — skip if balls already overlap (the quartic would find the
+    // "separation" time and fire a backwards collision)
     const distSq = Cx * Cx + Cy * Cy + Cz * Cz
     const rSum = circleA.radius + circleB.radius
     if (distSq < rSum * rSum) return undefined

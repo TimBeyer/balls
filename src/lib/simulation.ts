@@ -179,6 +179,24 @@ export function simulate(
       const c1 = event.circles[0]
       const c2 = event.circles[1]
 
+      // Snap to exact touching distance before resolving. Floating-point evaluation
+      // of the trajectory polynomial can leave balls slightly overlapping at the
+      // predicted collision time, which would cause the overlap guard to silently
+      // skip future collisions for this pair.
+      const dx = c1.position[0] - c2.position[0]
+      const dy = c1.position[1] - c2.position[1]
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      const rSum = c1.radius + c2.radius
+      if (dist > 0 && dist !== rSum) {
+        const half = (rSum - dist) / 2
+        const nx = dx / dist
+        const ny = dy / dist
+        c1.position[0] += nx * half
+        c1.position[1] += ny * half
+        c2.position[0] -= nx * half
+        c2.position[1] -= ny * half
+      }
+
       // Delegate to the ball collision resolver
       profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
 

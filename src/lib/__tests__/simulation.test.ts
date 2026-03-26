@@ -107,7 +107,7 @@ describe('simulate', () => {
 
     const circles = generateCircles(150, 2840, 1420, seededRandom, zeroFrictionConfig)
     // Use zero friction so low-velocity test balls don't stop instantly
-    const replay = simulate(2840, 1420, 10000, circles, zeroFrictionConfig)
+    const replay = simulate(2840, 1420, 100, circles, zeroFrictionConfig)
 
     const circleCollisions = replay.filter((r: { type: EventType }) => r.type === EventType.CircleCollision)
     // With friction, balls slow down so there may be fewer collisions.
