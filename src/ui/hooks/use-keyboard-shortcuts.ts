@@ -17,6 +17,10 @@ export function useKeyboardShortcuts(bridge: SimulationBridge) {
           e.preventDefault()
           bridge.callbacks.onStepForward()
           break
+        case 'ArrowLeft':
+          e.preventDefault()
+          bridge.callbacks.onStepBack()
+          break
         case 'Equal':
         case 'NumpadAdd':
           e.preventDefault()

@@ -1,4 +1,6 @@
 import Ball from './lib/ball'
+import type Vector3D from './lib/vector3d'
+import { MotionState } from './lib/motion-state'
 import { ReplayData } from './lib/simulation'
 import Renderer from './lib/renderers/renderer'
 import CircleRenderer from './lib/renderers/circle-renderer'
@@ -50,12 +52,25 @@ let resizeHandler: (() => void) | null = null
 const playbackController = new PlaybackController()
 const ballInspector = new BallInspector()
 let currentProgress = 0
+let eventHistory: ReplayData[] = []
+
+interface BallStateSnapshot {
+  position: Vector3D
+  velocity: Vector3D
+  radius: number
+  time: number
+  angularVelocity: Vector3D
+  motionState: MotionState
+  trajectoryA: [number, number]
+}
+let initialBallStates: Map<string, BallStateSnapshot> | null = null
 
 // --- Simulation Bridge (connects animation loop <-> React UI) ---
 const bridge = createSimulationBridge(config, {
   onRestartRequired: () => startSimulation(),
   onPauseToggle: () => playbackController.togglePause(currentProgress),
   onStepForward: () => playbackController.requestStep(),
+  onStepBack: () => playbackController.requestStepBack(),
   onLiveUpdate: () => {
     if (simulationScene) simulationScene.updateFromConfig(config)
     if (threeRenderer) threeRenderer.shadowMap.enabled = config.shadowsEnabled
@@ -103,6 +118,8 @@ function startSimulation() {
   simulationDone = false
   start = undefined
   simulationScene = null
+  eventHistory = []
+  initialBallStates = null
   // New canvas
   canvas2D = createCanvas(config)
 
@@ -176,6 +193,21 @@ function startSimulation() {
 
         circleIds = Object.keys(state)
         replayCircles = Object.values(state)
+
+        // Capture initial ball states for step-back replay
+        initialBallStates = new Map()
+        for (const [id, ball] of Object.entries(state)) {
+          initialBallStates.set(id, {
+            position: [...ball.position],
+            velocity: [...ball.velocity],
+            radius: ball.radius,
+            time: ball.time,
+            angularVelocity: [...ball.angularVelocity],
+            motionState: ball.motionState,
+            trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+          })
+        }
+
         nextEvent = results.shift()
         queueMicrotask(initScene)
       }
@@ -252,7 +284,10 @@ function initScene() {
   }
   window.addEventListener('resize', resizeHandler)
 
-  function applyEventSnapshots(event: ReplayData) {
+  function applyEventSnapshots(event: ReplayData, skipHistory = false) {
+    if (!skipHistory) {
+      eventHistory.push(event)
+    }
     for (const snapshot of event.snapshots) {
       const circle = state[snapshot.id]
       circle.position[0] = snapshot.position[0]
@@ -304,6 +339,50 @@ function initScene() {
       if (Math.abs(expectedProgress - progress) > 0.01) {
         start = timestamp - (progress / config.simulationSpeed) * 1000
       }
+    }
+
+    // Handle step-back: replay from initial state
+    if (playback.stepBack && eventHistory.length > 0 && initialBallStates) {
+      const poppedEvent = eventHistory.pop()!
+
+      // Push current nextEvent back to front of queue
+      if (nextEvent) {
+        simulatedResults.unshift(nextEvent)
+      }
+      nextEvent = poppedEvent
+
+      // Restore all balls to initial state
+      for (const [id, snap] of initialBallStates) {
+        const ball = state[id]
+        ball.position[0] = snap.position[0]
+        ball.position[1] = snap.position[1]
+        ball.position[2] = 0
+        ball.velocity[0] = snap.velocity[0]
+        ball.velocity[1] = snap.velocity[1]
+        ball.velocity[2] = 0
+        ball.radius = snap.radius
+        ball.time = snap.time
+        ball.angularVelocity = [...snap.angularVelocity]
+        ball.motionState = snap.motionState
+        ball.trajectory.a[0] = snap.trajectoryA[0]
+        ball.trajectory.a[1] = snap.trajectoryA[1]
+        ball.trajectory.b[0] = snap.velocity[0]
+        ball.trajectory.b[1] = snap.velocity[1]
+        ball.trajectory.c[0] = snap.position[0]
+        ball.trajectory.c[1] = snap.position[1]
+      }
+
+      // Replay all remaining history events (without re-adding to history)
+      const eventsToReplay = [...eventHistory]
+      eventHistory = []
+      for (const event of eventsToReplay) {
+        applyEventSnapshots(event)
+      }
+
+      // Update frozen progress
+      playbackController.frozenProgress =
+        eventHistory.length > 0 ? eventHistory[eventHistory.length - 1].time : 0
+      currentProgress = playbackController.frozenProgress
     }
 
     if (nextEvent) {
@@ -391,6 +470,7 @@ function initScene() {
       bufferDepth: simulatedResults.length,
       simulationDone,
       motionDistribution: motionDist,
+      canStepBack: eventHistory.length > 0,
     })
 
     renderer.render(scene.scene, scene.camera)

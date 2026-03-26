@@ -34,12 +34,14 @@ export interface SimulationSnapshot {
   simulationDone: boolean
   recentEvents: EventEntry[]
   motionDistribution: Record<string, number>
+  canStepBack: boolean
 }
 
 export interface SimulationCallbacks {
   onRestartRequired: () => void
   onPauseToggle: () => void
   onStepForward: () => void
+  onStepBack: () => void
   onLiveUpdate: () => void
   clearBallSelection: () => void
 }
@@ -67,6 +69,7 @@ function createInitialSnapshot(): SimulationSnapshot {
     simulationDone: false,
     recentEvents: [],
     motionDistribution: {},
+    canStepBack: false,
   }
 }
 

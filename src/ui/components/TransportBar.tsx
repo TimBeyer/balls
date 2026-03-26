@@ -8,6 +8,18 @@ export function TransportBar({ bridge }: { bridge: SimulationBridge }) {
 
   return (
     <div className="pointer-events-auto fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-xl bg-gray-900/90 px-4 py-2 shadow-lg backdrop-blur-sm">
+      {/* Step Back */}
+      <button
+        onClick={() => bridge.callbacks.onStepBack()}
+        className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-700 text-white transition hover:bg-gray-600 disabled:opacity-30"
+        disabled={!snap.paused || !snap.canStepBack}
+        title="Step Back (←)"
+      >
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M18 20L8 12l10-8v16zM8 20H5V4h3v16z" />
+        </svg>
+      </button>
+
       {/* Pause / Play */}
       <button
         onClick={() => bridge.callbacks.onPauseToggle()}
