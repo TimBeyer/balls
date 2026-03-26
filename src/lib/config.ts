@@ -6,6 +6,7 @@ export interface SimulationConfig {
   tableWidth: number
   tableHeight: number
   physicsProfile: PhysicsProfileName
+  scenarioName: string // '' = random, otherwise a scenario name from scenarios.ts
 
   // 3D Rendering
   shadowsEnabled: boolean
@@ -46,6 +47,7 @@ export const defaultConfig: SimulationConfig = {
   tableWidth: 2840,
   tableHeight: 1420,
   physicsProfile: 'pool',
+  scenarioName: '',
 
   shadowsEnabled: true,
   shadowMapSize: 1024,

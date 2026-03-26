@@ -1,12 +1,13 @@
-import { isWorkerInitializationRequest, isWorkerSimulationRequest } from './worker-request'
+import { isWorkerInitializationRequest, isWorkerSimulationRequest, isWorkerScenarioRequest } from './worker-request'
 import { ResponseMessageType, WorkerInitializationResponse, WorkerSimulationResponse } from './worker-response'
 import { generateCircles } from './generate-circles'
 import { simulate } from './simulation'
-import type Ball from './ball'
+import Ball from './ball'
 import { defaultPhysicsConfig, PhysicsConfig } from './physics-config'
 import { createPoolPhysicsProfile, createSimple2DProfile } from './physics/physics-profile'
 import type { PhysicsProfile } from './physics/physics-profile'
 import type { PhysicsProfileName } from './config'
+import type { Scenario, BallSpec } from './scenarios'
 
 declare const self: DedicatedWorkerGlobalScope
 
@@ -18,6 +19,29 @@ function createProfileByName(name: PhysicsProfileName): PhysicsProfile {
     default:
       return createPoolPhysicsProfile()
   }
+}
+
+function createBallFromSpec(spec: BallSpec, physicsConfig: PhysicsConfig): Ball {
+  const R = physicsConfig.defaultBallParams.radius
+  return new Ball(
+    [spec.x, spec.y, 0],
+    [spec.vx ?? 0, spec.vy ?? 0, spec.vz ?? 0],
+    R,
+    0,
+    physicsConfig.defaultBallParams.mass,
+    spec.id,
+    spec.spin ? [...spec.spin] : [0, 0, 0],
+    { ...physicsConfig.defaultBallParams },
+    physicsConfig,
+  )
+}
+
+function createBallsFromScenario(scenario: Scenario, physicsConfig: PhysicsConfig, profile: PhysicsProfile): Ball[] {
+  const balls = scenario.balls.map((spec) => createBallFromSpec(spec, physicsConfig))
+  for (const ball of balls) {
+    ball.updateTrajectory(profile, physicsConfig)
+  }
+  return balls
 }
 
 let isInitialized = false
@@ -68,6 +92,35 @@ self.addEventListener('message', (event: MessageEvent) => {
       self.postMessage(response)
     }
     console.log('Worker', request.payload)
+  } else if (isWorkerScenarioRequest(request)) {
+    const scenario = request.payload.scenario
+
+    TABLE_WIDTH = scenario.table.width
+    TABLE_HEIGHT = scenario.table.height
+
+    // Determine physics profile
+    if (scenario.physics === 'simple2d') {
+      profile = createSimple2DProfile()
+    } else {
+      profile = createPoolPhysicsProfile()
+    }
+
+    circles = createBallsFromScenario(scenario, physicsConfig, profile)
+    NUM_BALLS = circles.length
+    isInitialized = true
+    time = 0
+
+    const response: WorkerInitializationResponse = {
+      type: ResponseMessageType.SIMULATION_INITIALIZED,
+      payload: {
+        status: true,
+        tableWidth: TABLE_WIDTH,
+        tableHeight: TABLE_HEIGHT,
+        numBalls: NUM_BALLS,
+      },
+    }
+    self.postMessage(response)
+    console.log('Worker: loaded scenario', scenario.name, `(${NUM_BALLS} balls)`)
   } else if (isWorkerSimulationRequest(request)) {
     const needsInitialValues = time === 0
 

@@ -1,5 +1,6 @@
 import { Pane } from 'tweakpane'
 import { SimulationConfig } from './config'
+import { allScenarios } from './scenarios'
 
 export interface UICallbacks {
   onRestartRequired: () => void
@@ -11,6 +12,12 @@ export function createUI(config: SimulationConfig, callbacks: UICallbacks): Pane
 
   // --- Simulation (restart required) ---
   const simFolder = pane.addFolder({ title: 'Simulation (restart to apply)' })
+  // Build scenario options: { '(Random)': '', 'name': 'name', ... }
+  const scenarioOptions: Record<string, string> = { '(Random)': '' }
+  for (const s of allScenarios) {
+    scenarioOptions[s.name] = s.name
+  }
+  simFolder.addBinding(config, 'scenarioName', { label: 'Scenario', options: scenarioOptions })
   simFolder.addBinding(config, 'physicsProfile', {
     label: 'Physics',
     options: { 'Pool (3D friction)': 'pool', 'Simple 2D': 'simple2d' },

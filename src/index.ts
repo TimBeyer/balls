@@ -8,13 +8,21 @@ import CollisionPreviewRenderer from './lib/renderers/collision-preview-renderer
 import * as THREE from 'three'
 import SimulationScene from './lib/scene/simulation-scene'
 import Stats from 'stats.js'
-import { WorkerInitializationRequest, RequestMessageType } from './lib/worker-request'
+import { WorkerInitializationRequest, WorkerScenarioRequest, RequestMessageType } from './lib/worker-request'
 import { WorkerResponse, isWorkerInitializationResponse, isWorkerSimulationResponse } from './lib/worker-response'
 import { createConfig, SimulationConfig } from './lib/config'
 import { createUI } from './lib/ui'
 import { defaultPhysicsConfig } from './lib/physics-config'
+import { findScenario } from './lib/scenarios'
 
 const config = createConfig()
+
+// Support ?scenario=name URL parameter
+const urlParams = new URLSearchParams(window.location.search)
+const urlScenario = urlParams.get('scenario')
+if (urlScenario) {
+  config.scenarioName = urlScenario
+}
 
 // Buffer ahead in seconds (physics uses seconds as time unit)
 const PRECALC = 10
@@ -82,17 +90,31 @@ function startSimulation() {
   // Start new worker
   worker = new Worker(new URL('./lib/simulation.worker.ts', import.meta.url), { type: 'module' })
 
-  const initMessage: WorkerInitializationRequest = {
-    type: RequestMessageType.INITIALIZE_SIMULATION,
-    payload: {
-      numBalls: config.numBalls,
-      tableHeight: config.tableHeight,
-      tableWidth: config.tableWidth,
-      physicsProfile: config.physicsProfile,
-    },
-  }
+  // Send either a scenario load or random initialization
+  const scenario = config.scenarioName ? findScenario(config.scenarioName) : undefined
+  if (scenario) {
+    // Override table dimensions from scenario
+    config.tableWidth = scenario.table.width
+    config.tableHeight = scenario.table.height
+    canvas2D = createCanvas(config)
 
-  worker.postMessage(initMessage)
+    const scenarioMessage: WorkerScenarioRequest = {
+      type: RequestMessageType.LOAD_SCENARIO,
+      payload: { scenario },
+    }
+    worker.postMessage(scenarioMessage)
+  } else {
+    const initMessage: WorkerInitializationRequest = {
+      type: RequestMessageType.INITIALIZE_SIMULATION,
+      payload: {
+        numBalls: config.numBalls,
+        tableHeight: config.tableHeight,
+        tableWidth: config.tableWidth,
+        physicsProfile: config.physicsProfile,
+      },
+    }
+    worker.postMessage(initMessage)
+  }
   worker.addEventListener('message', (event: MessageEvent) => {
     const response: WorkerResponse = event.data
 
