@@ -40,6 +40,14 @@ export interface SimulationConfig {
 
   // Simulation speed
   simulationSpeed: number
+
+  // Debug Visualization
+  showFutureTrails: boolean
+  futureTrailEventsPerBall: number
+  futureTrailInterpolationSteps: number
+  showPhantomBalls: boolean
+  phantomBallOpacity: number
+  showBallInspector: boolean
 }
 
 export const defaultConfig: SimulationConfig = {
@@ -74,6 +82,13 @@ export const defaultConfig: SimulationConfig = {
   showStats: true,
 
   simulationSpeed: 1.0,
+
+  showFutureTrails: false,
+  futureTrailEventsPerBall: 5,
+  futureTrailInterpolationSteps: 10,
+  showPhantomBalls: true,
+  phantomBallOpacity: 0.3,
+  showBallInspector: false,
 }
 
 export function createConfig(): SimulationConfig {

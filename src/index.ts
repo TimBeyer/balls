@@ -5,6 +5,7 @@ import CircleRenderer from './lib/renderers/circle-renderer'
 import TailRenderer from './lib/renderers/tail-renderer'
 import CollisionRenderer from './lib/renderers/collision-renderer'
 import CollisionPreviewRenderer from './lib/renderers/collision-preview-renderer'
+import FutureTrailRenderer from './lib/renderers/future-trail-renderer'
 import * as THREE from 'three'
 import SimulationScene from './lib/scene/simulation-scene'
 import Stats from 'stats.js'
@@ -14,6 +15,8 @@ import { createConfig, SimulationConfig } from './lib/config'
 import { createUI } from './lib/ui'
 import { defaultPhysicsConfig } from './lib/physics-config'
 import { findScenario } from './lib/scenarios'
+import { PlaybackController } from './lib/debug/playback-controller'
+import { BallInspector } from './lib/debug/ball-inspector'
 
 const config = createConfig()
 
@@ -42,6 +45,9 @@ let stats: Stats | null = null
 let animationFrameId: number | null = null
 let start: number | undefined
 let resizeHandler: (() => void) | null = null
+const playbackController = new PlaybackController()
+const ballInspector = new BallInspector()
+let currentProgress = 0
 
 function createCanvas(config: SimulationConfig) {
   const millimeterToPixel = 1 / 2
@@ -188,6 +194,34 @@ function initScene() {
   const tailRenderer = new TailRenderer(canvas2D, config.tailLength)
   const collisionRenderer = new CollisionRenderer(canvas2D)
   const collisionPreviewRenderer = new CollisionPreviewRenderer(canvas2D, config.collisionPreviewCount)
+  const futureTrailRenderer = new FutureTrailRenderer(
+    canvas2D,
+    config.futureTrailEventsPerBall,
+    config.futureTrailInterpolationSteps,
+    config.phantomBallOpacity,
+    config.showPhantomBalls,
+  )
+
+  // Ball inspector click handling
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (config.showBallInspector) {
+      ballInspector.handlePointerDown(e)
+    }
+  })
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (config.showBallInspector) {
+      ballInspector.handlePointerUp(
+        e,
+        state,
+        circleIds,
+        currentProgress,
+        scene.camera,
+        renderer.domElement,
+        config.tableWidth,
+        config.tableHeight,
+      )
+    }
+  })
 
   if (!stats) {
     stats = new Stats()
@@ -205,13 +239,51 @@ function initScene() {
   }
   window.addEventListener('resize', resizeHandler)
 
+  function applyEventSnapshots(event: ReplayData) {
+    for (const snapshot of event.snapshots) {
+      const circle = state[snapshot.id]
+      circle.position[0] = snapshot.position[0]
+      circle.position[1] = snapshot.position[1]
+      circle.velocity[0] = snapshot.velocity[0]
+      circle.velocity[1] = snapshot.velocity[1]
+      circle.radius = snapshot.radius
+      circle.time = snapshot.time
+      if (snapshot.angularVelocity) {
+        circle.angularVelocity = [...snapshot.angularVelocity]
+      }
+      if (snapshot.motionState !== undefined) {
+        circle.motionState = snapshot.motionState
+      }
+      // Rebase trajectory to new reference time (event time)
+      circle.trajectory.a[0] = snapshot.trajectoryA[0]
+      circle.trajectory.a[1] = snapshot.trajectoryA[1]
+      circle.trajectory.b[0] = snapshot.velocity[0]
+      circle.trajectory.b[1] = snapshot.velocity[1]
+      circle.trajectory.c[0] = snapshot.position[0]
+      circle.trajectory.c[1] = snapshot.position[1]
+    }
+  }
+
   function step(timestamp: number) {
     stats!.begin()
 
     if (!start) start = timestamp
 
     // Convert ms timestamp to seconds to match physics time units
-    const progress = ((timestamp - start) / 1000) * config.simulationSpeed
+    const realProgress = ((timestamp - start) / 1000) * config.simulationSpeed
+
+    // Playback controller determines effective progress
+    const playback = playbackController.resolveProgress(realProgress, nextEvent)
+    const progress = playback.progress
+    currentProgress = progress
+
+    // When unpausing, adjust start to prevent time jump
+    if (!playbackController.paused && start !== undefined) {
+      const expectedProgress = ((timestamp - start) / 1000) * config.simulationSpeed
+      if (Math.abs(expectedProgress - progress) > 0.01) {
+        start = timestamp - (progress / config.simulationSpeed) * 1000
+      }
+    }
 
     if (nextEvent) {
       const lastEvent = simulatedResults[simulatedResults.length - 1]
@@ -225,34 +297,20 @@ function initScene() {
         })
       }
 
-      while (nextEvent && progress >= nextEvent.time) {
-        // Only update balls involved in this event from their snapshots.
-        // Non-involved balls keep their existing trajectory which remains valid
-        // for positionAtTime() interpolation from their own reference time.
-        for (const snapshot of nextEvent.snapshots) {
-          const circle = state[snapshot.id]
-          circle.position[0] = snapshot.position[0]
-          circle.position[1] = snapshot.position[1]
-          circle.velocity[0] = snapshot.velocity[0]
-          circle.velocity[1] = snapshot.velocity[1]
-          circle.radius = snapshot.radius
-          circle.time = snapshot.time
-          if (snapshot.angularVelocity) {
-            circle.angularVelocity = [...snapshot.angularVelocity]
+      if (playback.shouldProcessEvents) {
+        if (playback.consumeOneEvent) {
+          // Step mode: process exactly one event
+          if (nextEvent && progress >= nextEvent.time) {
+            applyEventSnapshots(nextEvent)
+            nextEvent = simulatedResults.shift()
           }
-          if (snapshot.motionState !== undefined) {
-            circle.motionState = snapshot.motionState
+        } else {
+          // Normal mode: process all due events
+          while (nextEvent && progress >= nextEvent.time) {
+            applyEventSnapshots(nextEvent)
+            nextEvent = simulatedResults.shift()
           }
-          // Rebase trajectory to new reference time (event time)
-          circle.trajectory.a[0] = snapshot.trajectoryA[0]
-          circle.trajectory.a[1] = snapshot.trajectoryA[1]
-          circle.trajectory.b[0] = snapshot.velocity[0]
-          circle.trajectory.b[1] = snapshot.velocity[1]
-          circle.trajectory.c[0] = snapshot.position[0]
-          circle.trajectory.c[1] = snapshot.position[1]
         }
-
-        nextEvent = simulatedResults.shift()
       }
     }
 
@@ -261,12 +319,21 @@ function initScene() {
     ctx.fillStyle = config.tableColor
     ctx.fillRect(0, 0, canvas2D.width, canvas2D.height)
 
+    // Update future trail renderer settings from config
+    futureTrailRenderer.updateSettings(
+      config.futureTrailEventsPerBall,
+      config.futureTrailInterpolationSteps,
+      config.phantomBallOpacity,
+      config.showPhantomBalls,
+    )
+
     // Build active renderers list based on config (reuse stateful renderers)
     const renderers: Renderer[] = []
     if (config.showCircles) renderers.push(circleRenderer)
     if (config.showTails) renderers.push(tailRenderer)
     if (config.showCollisions) renderers.push(collisionRenderer)
     if (config.showCollisionPreview) renderers.push(collisionPreviewRenderer)
+    if (config.showFutureTrails) renderers.push(futureTrailRenderer)
 
     scene.renderAtTime(progress)
     if (nextEvent || simulatedResults.length > 0) {
@@ -278,6 +345,11 @@ function initScene() {
           }
         }
       }
+    }
+
+    // Ball inspector overlay (rendered after all other 2D)
+    if (config.showBallInspector && ballInspector.hasSelection()) {
+      ballInspector.renderOverlay(ctx, state, progress)
     }
 
     // Update live parameters
@@ -303,6 +375,12 @@ createUI(config, {
     if (threeRenderer) {
       threeRenderer.shadowMap.enabled = config.shadowsEnabled
     }
+  },
+  onPauseToggle: () => {
+    playbackController.togglePause(currentProgress)
+  },
+  onStepForward: () => {
+    playbackController.requestStep()
   },
 })
 

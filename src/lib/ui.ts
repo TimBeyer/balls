@@ -5,6 +5,8 @@ import { allScenarios } from './scenarios'
 export interface UICallbacks {
   onRestartRequired: () => void
   onLiveUpdate: () => void
+  onPauseToggle: () => void
+  onStepForward: () => void
 }
 
 export function createUI(config: SimulationConfig, callbacks: UICallbacks): Pane {
@@ -73,6 +75,26 @@ export function createUI(config: SimulationConfig, callbacks: UICallbacks): Pane
   overlayFolder.addBinding(config, 'showCollisions', { label: 'Collisions' })
   overlayFolder.addBinding(config, 'showCollisionPreview', { label: 'Collision Preview' })
   overlayFolder.addBinding(config, 'collisionPreviewCount', { min: 1, max: 50, step: 1, label: 'Preview Count' })
+
+  // --- Debug Visualization ---
+  const debugFolder = pane.addFolder({ title: 'Debug Visualization', expanded: false })
+  debugFolder.addBinding(config, 'showFutureTrails', { label: 'Future Trails' })
+  debugFolder.addBinding(config, 'futureTrailEventsPerBall', { min: 1, max: 20, step: 1, label: 'Events/Ball' })
+  debugFolder.addBinding(config, 'futureTrailInterpolationSteps', { min: 5, max: 30, step: 1, label: 'Trail Detail' })
+  debugFolder.addBinding(config, 'showPhantomBalls', { label: 'Phantom Balls' })
+  debugFolder.addBinding(config, 'phantomBallOpacity', { min: 0.1, max: 1.0, step: 0.05, label: 'Phantom Opacity' })
+  debugFolder.addBinding(config, 'showBallInspector', { label: 'Ball Inspector' })
+
+  // --- Playback ---
+  const playbackFolder = pane.addFolder({ title: 'Playback', expanded: false })
+  const pauseBtn = playbackFolder.addButton({ title: 'Pause' })
+  pauseBtn.on('click', () => {
+    callbacks.onPauseToggle()
+    pauseBtn.title = pauseBtn.title === 'Pause' ? 'Resume' : 'Pause'
+  })
+  playbackFolder.addButton({ title: 'Step \u2192' }).on('click', () => {
+    callbacks.onStepForward()
+  })
 
   // --- Table ---
   pane.addBinding(config, 'tableColor', { label: 'Table Color' })
