@@ -204,18 +204,8 @@ export function simulate(
 
     replay.push(replayData)
 
-    if (event.type === 'Circle') {
-      // After ball-ball collision, skip re-predicting the same pair.
-      // They're at touching distance and Sliding acceleration can push them back
-      // together in nanoseconds (Zeno problem). The pair will be re-checked when
-      // either ball's trajectory changes from a state transition or another collision.
-      const [c1, c2] = event.circles
-      collisionFinder.recompute(c1.id, c2.id)
-      collisionFinder.recompute(c2.id, c1.id)
-    } else {
-      for (const circle of event.circles) {
-        collisionFinder.recompute(circle.id)
-      }
+    for (const circle of event.circles) {
+      collisionFinder.recompute(circle.id)
     }
   }
   return replay

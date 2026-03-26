@@ -10,8 +10,8 @@ import { MotionState } from '../motion-state'
 describe('simulate', () => {
   it('head-on collision: two circles should bounce back', () => {
     const radius = 10
-    const c1 = createTestBall([100, 100], [1, 0], radius, 0)
-    const c2 = createTestBall([200, 100], [-1, 0], radius, 0)
+    const c1 = createTestBall([100, 100], [100, 0], radius, 0)
+    const c2 = createTestBall([200, 100], [-100, 0], radius, 0)
     const replay = simulate(1000, 500, 100, [c1, c2], zeroFrictionConfig)
 
     const circleCollisions = replay.filter((r) => r.type === EventType.CircleCollision)
@@ -20,8 +20,8 @@ describe('simulate', () => {
     const firstCollision = circleCollisions[0]
     const snap1 = firstCollision.snapshots.find((s) => s.id === c1.id)!
     const snap2 = firstCollision.snapshots.find((s) => s.id === c2.id)!
-    expect(snap1.velocity[0]).toBeCloseTo(-1, 5)
-    expect(snap2.velocity[0]).toBeCloseTo(1, 5)
+    expect(snap1.velocity[0]).toBeCloseTo(-100, 2)
+    expect(snap2.velocity[0]).toBeCloseTo(100, 2)
   })
 
   it('no circles should overlap at any collision event', () => {

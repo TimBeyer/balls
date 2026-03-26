@@ -6,11 +6,19 @@
  * (elastic, frictionless, instantaneous model — no spin transfer).
  * After collision, updateTrajectory() re-determines the motion state;
  * the ball will typically enter Sliding and friction naturally evolves it to Rolling.
+ *
+ * Below INELASTIC_THRESHOLD, collisions are perfectly inelastic along the normal:
+ * both balls receive the center-of-mass normal velocity (no bounce). This prevents
+ * Zeno cascades in low-energy clusters where balls would otherwise bounce infinitely
+ * at diminishing intervals.
  */
 
 import type Ball from '../../ball'
 import type { PhysicsConfig } from '../../physics-config'
 import type { BallCollisionResolver } from './collision-resolver'
+
+/** Approach speed (mm/s) below which collisions become perfectly inelastic */
+const INELASTIC_THRESHOLD = 5
 
 export class ElasticBallResolver implements BallCollisionResolver {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -37,16 +45,29 @@ export class ElasticBallResolver implements BallCollisionResolver {
     const vx2Remainder = vx2 - dx * v2dot,
       vy2Remainder = vy2 - dy * v2dot
 
-    // 1D elastic collision along the normal
-    const commonVelocity = (2 * (c1.mass * v1dot + c2.mass * v2dot)) / (c1.mass + c2.mass)
-    const v1NormalAfter = commonVelocity - v1dot
-    const v2NormalAfter = commonVelocity - v2dot
+    // Approach speed along the normal (positive when approaching)
+    const approachSpeed = v1dot - v2dot
 
-    // Reconstruct 2D velocity: normal component + tangential remainder
-    c1.velocity[0] = dx * v1NormalAfter + vx1Remainder
-    c1.velocity[1] = dy * v1NormalAfter + vy1Remainder
-    c2.velocity[0] = dx * v2NormalAfter + vx2Remainder
-    c2.velocity[1] = dy * v2NormalAfter + vy2Remainder
+    // Center-of-mass velocity along the normal
+    const comVelocity = (c1.mass * v1dot + c2.mass * v2dot) / (c1.mass + c2.mass)
+
+    if (Math.abs(approachSpeed) < INELASTIC_THRESHOLD) {
+      // Perfectly inelastic: both balls get COM velocity along normal (no bounce).
+      // At ≤5 mm/s a ball travels <0.2mm before friction stops it — sub-perceptible.
+      c1.velocity[0] = dx * comVelocity + vx1Remainder
+      c1.velocity[1] = dy * comVelocity + vy1Remainder
+      c2.velocity[0] = dx * comVelocity + vx2Remainder
+      c2.velocity[1] = dy * comVelocity + vy2Remainder
+    } else {
+      // Standard elastic collision along the normal
+      const v1NormalAfter = 2 * comVelocity - v1dot
+      const v2NormalAfter = 2 * comVelocity - v2dot
+
+      c1.velocity[0] = dx * v1NormalAfter + vx1Remainder
+      c1.velocity[1] = dy * v1NormalAfter + vy1Remainder
+      c2.velocity[0] = dx * v2NormalAfter + vx2Remainder
+      c2.velocity[1] = dy * v2NormalAfter + vy2Remainder
+    }
 
     // Zero z-velocity (we only use z for airborne balls, not ball-ball collisions)
     c1.velocity[2] = 0
