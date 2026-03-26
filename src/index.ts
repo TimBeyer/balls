@@ -12,11 +12,13 @@ import Stats from 'stats.js'
 import { WorkerInitializationRequest, WorkerScenarioRequest, RequestMessageType } from './lib/worker-request'
 import { WorkerResponse, isWorkerInitializationResponse, isWorkerSimulationResponse } from './lib/worker-response'
 import { createConfig, SimulationConfig } from './lib/config'
-import { createUI } from './lib/ui'
+import { createAdvancedUI } from './lib/ui'
 import { defaultPhysicsConfig } from './lib/physics-config'
 import { findScenario } from './lib/scenarios'
 import { PlaybackController } from './lib/debug/playback-controller'
 import { BallInspector } from './lib/debug/ball-inspector'
+import { createSimulationBridge, computeBallData } from './lib/debug/simulation-bridge'
+import { mountDebugOverlay } from './ui/index'
 
 const config = createConfig()
 
@@ -48,6 +50,18 @@ let resizeHandler: (() => void) | null = null
 const playbackController = new PlaybackController()
 const ballInspector = new BallInspector()
 let currentProgress = 0
+
+// --- Simulation Bridge (connects animation loop <-> React UI) ---
+const bridge = createSimulationBridge(config, {
+  onRestartRequired: () => startSimulation(),
+  onPauseToggle: () => playbackController.togglePause(currentProgress),
+  onStepForward: () => playbackController.requestStep(),
+  onLiveUpdate: () => {
+    if (simulationScene) simulationScene.updateFromConfig(config)
+    if (threeRenderer) threeRenderer.shadowMap.enabled = config.shadowsEnabled
+  },
+  clearBallSelection: () => ballInspector.clearSelection(),
+})
 
 function createCanvas(config: SimulationConfig) {
   const millimeterToPixel = 1 / 2
@@ -89,7 +103,6 @@ function startSimulation() {
   simulationDone = false
   start = undefined
   simulationScene = null
-
   // New canvas
   canvas2D = createCanvas(config)
 
@@ -262,6 +275,14 @@ function initScene() {
       circle.trajectory.c[0] = snapshot.position[0]
       circle.trajectory.c[1] = snapshot.position[1]
     }
+
+    // Push event to bridge for the event log
+    bridge.pushEvent({
+      time: event.time,
+      type: event.type,
+      involvedBalls: event.snapshots.map((s) => s.id),
+      cushionType: event.cushionType,
+    })
   }
 
   function step(timestamp: number) {
@@ -347,16 +368,30 @@ function initScene() {
       }
     }
 
-    // Ball inspector overlay (rendered after all other 2D)
-    if (config.showBallInspector && ballInspector.hasSelection()) {
-      ballInspector.renderOverlay(ctx, state, progress)
-    }
-
     // Update live parameters
     if (stats) {
       stats.dom.style.display = config.showStats ? 'block' : 'none'
     }
     renderer.shadowMap.enabled = config.shadowsEnabled
+
+    // Update bridge snapshot for React UI
+    const selectedId = ballInspector.getSelectedBallId()
+    const motionDist: Record<string, number> = {}
+    for (const id of circleIds) {
+      const ms = state[id].motionState
+      motionDist[ms] = (motionDist[ms] || 0) + 1
+    }
+    bridge.update({
+      currentProgress: progress,
+      paused: playbackController.paused,
+      simulationSpeed: config.simulationSpeed,
+      selectedBallId: selectedId,
+      selectedBallData: selectedId && state[selectedId] ? computeBallData(state[selectedId], progress) : null,
+      ballCount: circleIds.length,
+      bufferDepth: simulatedResults.length,
+      simulationDone,
+      motionDistribution: motionDist,
+    })
 
     renderer.render(scene.scene, scene.camera)
     stats!.end()
@@ -366,23 +401,17 @@ function initScene() {
 }
 
 // --- UI Setup ---
-createUI(config, {
+// Advanced settings (Tweakpane, collapsed)
+createAdvancedUI(config, {
   onRestartRequired: () => startSimulation(),
   onLiveUpdate: () => {
-    if (simulationScene) {
-      simulationScene.updateFromConfig(config)
-    }
-    if (threeRenderer) {
-      threeRenderer.shadowMap.enabled = config.shadowsEnabled
-    }
-  },
-  onPauseToggle: () => {
-    playbackController.togglePause(currentProgress)
-  },
-  onStepForward: () => {
-    playbackController.requestStep()
+    if (simulationScene) simulationScene.updateFromConfig(config)
+    if (threeRenderer) threeRenderer.shadowMap.enabled = config.shadowsEnabled
   },
 })
+
+// React debug overlay
+mountDebugOverlay(bridge)
 
 // Start initial simulation
 startSimulation()
