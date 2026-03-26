@@ -47,6 +47,36 @@ export function smallestPositiveRoot(coeffs: number[]): number | undefined {
       best = r
     }
   }
+
+  // Fallback for near-contact collisions: when the quartic solver (Ferrari's method)
+  // fails due to floating-point precision loss, the polynomial has a small positive
+  // constant term and a negative linear term (balls nearly touching and approaching).
+  // Use Newton's method to find the root the algebraic solver missed.
+  if (best === undefined && degree >= 2) {
+    const an = coeffs[start]
+    const e0 = coeffs[start + degree] // constant term
+    const e1 = coeffs[start + degree - 1] // linear term
+    if (e0 > 0 && e0 < 1e-2 * Math.abs(an) && e1 < 0) {
+      // Linear approximation as initial guess: t ≈ -e0/e1
+      let t = -e0 / e1
+      // Newton's method refinement (5 iterations)
+      for (let i = 0; i < 5; i++) {
+        let f = 0
+        let fp = 0
+        for (let j = start; j <= start + degree; j++) {
+          f = f * t + coeffs[j]
+          if (j < start + degree) fp = fp * t + coeffs[j] * (start + degree - j)
+        }
+        if (Math.abs(fp) < EPSILON) break
+        t -= f / fp
+        if (t <= 0) break
+      }
+      if (t > EPSILON) {
+        best = t
+      }
+    }
+  }
+
   return best
 }
 

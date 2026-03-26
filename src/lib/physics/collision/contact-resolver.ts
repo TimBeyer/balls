@@ -241,25 +241,30 @@ export function resolveContacts(
         neighbor.position[1] = Math.max(R2, Math.min(tableHeight - R2, neighbor.position[1]))
 
         // After clamping, balls near walls may still overlap because the wall
-        // prevented full separation. Iteratively push apart and re-clamp.
-        for (let sep = 0; sep < 3; sep++) {
+        // prevented full separation. Iteratively push apart using half-overlap
+        // (each iteration halves remaining overlap from wall-locked balls).
+        for (let sep = 0; sep < 5; sep++) {
           const dx2 = ball.position[0] - neighbor.position[0]
           const dy2 = ball.position[1] - neighbor.position[1]
           const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2)
           const rSum2 = ball.radius + neighbor.radius
           if (dist2 <= 0 || dist2 >= rSum2) break
-          const overlap = rSum2 - dist2
+          const half2 = (rSum2 - dist2) / 2
           const nx2 = dx2 / dist2
           const ny2 = dy2 / dist2
-          ball.position[0] += nx2 * overlap
-          ball.position[1] += ny2 * overlap
-          neighbor.position[0] -= nx2 * overlap
-          neighbor.position[1] -= ny2 * overlap
+          ball.position[0] += nx2 * half2
+          ball.position[1] += ny2 * half2
+          neighbor.position[0] -= nx2 * half2
+          neighbor.position[1] -= ny2 * half2
           ball.position[0] = Math.max(R1, Math.min(tableWidth - R1, ball.position[0]))
           ball.position[1] = Math.max(R1, Math.min(tableHeight - R1, ball.position[1]))
           neighbor.position[0] = Math.max(R2, Math.min(tableWidth - R2, neighbor.position[0]))
           neighbor.position[1] = Math.max(R2, Math.min(tableHeight - R2, neighbor.position[1]))
         }
+
+        // Rebase trajectory.c to match actual position after clamp/push
+        ball.trajectory.c = [ball.position[0], ball.position[1], ball.position[2]]
+        neighbor.trajectory.c = [neighbor.position[0], neighbor.position[1], neighbor.position[2]]
 
         // Increment epochs so old heap events for these balls are invalidated
         ball.epoch++

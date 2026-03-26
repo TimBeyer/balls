@@ -202,23 +202,31 @@ export function simulate(
       clampToBounds(c1, tableWidth, tableHeight)
       clampToBounds(c2, tableWidth, tableHeight)
 
-      // Wall clamping may have re-introduced overlap. Iteratively push apart.
-      for (let sep = 0; sep < 3; sep++) {
+      // Wall clamping may have re-introduced overlap. Iteratively push apart
+      // using half-overlap per ball (each iteration halves any remaining overlap
+      // from wall-locked balls that can't move).
+      for (let sep = 0; sep < 5; sep++) {
         const dx2 = c1.position[0] - c2.position[0]
         const dy2 = c1.position[1] - c2.position[1]
         const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2)
         const rSum2 = c1.radius + c2.radius
         if (dist2 <= 0 || dist2 >= rSum2) break
-        const overlap = rSum2 - dist2
+        const half = (rSum2 - dist2) / 2
         const nx2 = dx2 / dist2
         const ny2 = dy2 / dist2
-        c1.position[0] += nx2 * overlap
-        c1.position[1] += ny2 * overlap
-        c2.position[0] -= nx2 * overlap
-        c2.position[1] -= ny2 * overlap
+        c1.position[0] += nx2 * half
+        c1.position[1] += ny2 * half
+        c2.position[0] -= nx2 * half
+        c2.position[1] -= ny2 * half
         clampToBounds(c1, tableWidth, tableHeight)
         clampToBounds(c2, tableWidth, tableHeight)
       }
+
+      // Rebase trajectory.c to match actual position after clamp/push.
+      // Without this, the quartic detector uses stale position data, causing
+      // wrong collision times and visual teleportation.
+      c1.trajectory.c = [c1.position[0], c1.position[1], c1.position[2]]
+      c2.trajectory.c = [c2.position[0], c2.position[1], c2.position[2]]
 
       currentTime = event.time
 
@@ -265,6 +273,8 @@ export function simulate(
     for (const circle of event.circles) {
       if (circle.motionState !== MotionState.Airborne) {
         clampToBounds(circle, tableWidth, tableHeight)
+        // Rebase trajectory.c to match clamped position
+        circle.trajectory.c = [circle.position[0], circle.position[1], circle.position[2]]
       }
     }
 
