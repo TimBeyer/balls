@@ -74,6 +74,16 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const dt = smallestPositiveRoot([coeff4, coeff3, coeff2, coeff1, coeff0])
     if (dt === undefined) return undefined
 
+    // Verify the root actually produces a collision (reject spurious roots from
+    // floating-point imprecision in the quartic solver)
+    const dt2 = dt * dt
+    const dx = Ax * dt2 + Bx * dt + Cx
+    const dy = Ay * dt2 + By * dt + Cy
+    const dz = Az * dt2 + Bz * dt + Cz
+    const distSqAtRoot = dx * dx + dy * dy + dz * dz
+    // Allow 1% tolerance for numerical imprecision
+    if (distSqAtRoot > rSum * rSum * 1.02) return undefined
+
     return dt + refTime
   }
 }

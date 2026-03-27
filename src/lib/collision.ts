@@ -216,18 +216,12 @@ export class CollisionFinder {
         const circle = event.circles[0]
 
         // Advance circle to transition time and rebase trajectory to new reference point.
-        // Do NOT call updateTrajectory — that re-determines motion state, which could
-        // prematurely switch e.g. Sliding→Rolling and corrupt collision detection.
+        // Use rebaseTrajectory (not updateTrajectory) to avoid re-determining motion
+        // state, which could prematurely switch e.g. Sliding→Rolling.
+        // Must recompute full trajectory (not just b,c) because acceleration direction
+        // depends on velocity direction, which changes along the quadratic path.
         circle.advanceTime(event.time)
-        circle.trajectory.c = [circle.position[0], circle.position[1], circle.position[2]]
-        circle.trajectory.b = [circle.velocity[0], circle.velocity[1], circle.velocity[2]]
-        // trajectory.a stays the same (acceleration unchanged within a motion state)
-        circle.angularTrajectory.omega0 = [
-          circle.angularVelocity[0],
-          circle.angularVelocity[1],
-          circle.angularVelocity[2],
-        ]
-        // angularTrajectory.alpha stays the same
+        circle.rebaseTrajectory(this.profile, this.physicsConfig)
 
         this.grid.moveCircle(circle, event.toCell)
         this.scheduleNextCellTransition(circle)

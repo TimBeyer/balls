@@ -136,21 +136,14 @@ function makePairKey(a: string, b: string): string {
 
 /**
  * Advance a ball to the given time if it hasn't been advanced yet.
- * Also rebases the trajectory so future evaluations use the new reference time.
+ * Recomputes trajectory coefficients (including acceleration direction) without
+ * re-determining motion state — acceleration direction depends on velocity direction,
+ * which changes along the quadratic path.
  */
-function ensureAdvanced(ball: Ball, t: number): void {
+function ensureAdvanced(ball: Ball, t: number, profile: PhysicsProfile, config: PhysicsConfig): void {
   if (ball.time === t) return
   ball.advanceTime(t)
-  // Rebase trajectory to new reference point (same approach as CellTransition in CollisionFinder)
-  ball.trajectory.c = [ball.position[0], ball.position[1], ball.position[2]]
-  ball.trajectory.b = [ball.velocity[0], ball.velocity[1], ball.velocity[2]]
-  // trajectory.a stays the same (acceleration unchanged within a motion state)
-  ball.angularTrajectory.omega0 = [
-    ball.angularVelocity[0],
-    ball.angularVelocity[1],
-    ball.angularVelocity[2],
-  ]
-  // angularTrajectory.alpha stays the same
+  ball.rebaseTrajectory(profile, config)
 }
 
 /**
@@ -218,7 +211,7 @@ export function resolveContacts(
         if (count > MAX_PAIR_SKIP) continue
 
         // Advance neighbor to current time (modifies state + rebases trajectory)
-        ensureAdvanced(neighbor, currentTime)
+        ensureAdvanced(neighbor, currentTime, profile, config)
 
         snapApart(ball, neighbor)
 

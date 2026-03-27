@@ -139,6 +139,16 @@ export default class Ball {
    */
   updateTrajectory(profile: PhysicsProfile, config: PhysicsConfig): void {
     this.motionState = profile.determineMotionState(this.velocity, this.angularVelocity, this.radius)
+    this.rebaseTrajectory(profile, config)
+  }
+
+  /**
+   * Recompute trajectory coefficients without re-determining motion state.
+   * Use when the ball's time/position/velocity has been updated (e.g., cell transitions)
+   * but the motion state should be preserved. This ensures acceleration direction
+   * (which depends on velocity direction) stays consistent with the current velocity.
+   */
+  rebaseTrajectory(profile: PhysicsProfile, config: PhysicsConfig): void {
     const model = profile.motionModels.get(this.motionState)!
     this.trajectory = model.computeTrajectory(this, config)
     this.angularTrajectory = model.computeAngularTrajectory(this, config)
