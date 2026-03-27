@@ -94,7 +94,7 @@ export function createZeroFrictionBall(spec: BallSpec): Ball {
 
 // ─── Scenario runner ─────────────────────────────────────────────────────────
 
-function seededRandom(seed: number): () => number {
+export function seededRandom(seed: number): () => number {
   let s = seed
   return () => {
     s = (s * 16807) % 2147483647

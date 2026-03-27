@@ -136,15 +136,14 @@ function makePairKey(a: string, b: string): string {
 
 /**
  * Advance a ball to the given time if it hasn't been advanced yet.
- * Only updates b (velocity) and c (position) — does NOT touch a (acceleration).
- * Changing acceleration would invalidate already-scheduled state transition events.
+ * Rebases full trajectory (including acceleration direction) to match
+ * current velocity. Safe here because updateTrajectory() and epoch++
+ * happen on all affected balls after contact resolution completes.
  */
-function ensureAdvanced(ball: Ball, t: number): void {
+function ensureAdvanced(ball: Ball, t: number, profile: PhysicsProfile, config: PhysicsConfig): void {
   if (ball.time === t) return
   ball.advanceTime(t)
-  ball.trajectory.c = [ball.position[0], ball.position[1], ball.position[2]]
-  ball.trajectory.b = [ball.velocity[0], ball.velocity[1], ball.velocity[2]]
-  ball.angularTrajectory.omega0 = [ball.angularVelocity[0], ball.angularVelocity[1], ball.angularVelocity[2]]
+  ball.rebaseTrajectory(profile, config)
 }
 
 /**
@@ -211,8 +210,8 @@ export function resolveContacts(
         // Skip pairs that have been resolved too many times (wall-locked / can't separate)
         if (count > MAX_PAIR_SKIP) continue
 
-        // Advance neighbor to current time (modifies state + updates b,c)
-        ensureAdvanced(neighbor, currentTime)
+        // Advance neighbor to current time (modifies state + rebases trajectory)
+        ensureAdvanced(neighbor, currentTime, profile, config)
 
         snapApart(ball, neighbor)
 

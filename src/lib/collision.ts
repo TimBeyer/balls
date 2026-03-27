@@ -215,33 +215,16 @@ export class CollisionFinder {
         const event = next as CellTransitionEvent
         const circle = event.circles[0]
 
-        // Advance circle to transition time and update trajectory reference point.
-        // Only update b (velocity) and c (position) — do NOT touch a (acceleration).
-        // Changing acceleration would invalidate already-scheduled state transition
-        // events that depend on the old trajectory timing.
+        // Advance circle and recompute full trajectory (including acceleration direction,
+        // which depends on current velocity). Increment epoch to invalidate all stale events
+        // (state transitions, collisions) that were scheduled from the old trajectory.
+        // Then recompute() reschedules everything with the correct trajectory.
         circle.advanceTime(event.time)
-        circle.trajectory.c = [circle.position[0], circle.position[1], circle.position[2]]
-        circle.trajectory.b = [circle.velocity[0], circle.velocity[1], circle.velocity[2]]
-        circle.angularTrajectory.omega0 = [circle.angularVelocity[0], circle.angularVelocity[1], circle.angularVelocity[2]]
+        circle.rebaseTrajectory(this.profile, this.physicsConfig)
 
         this.grid.moveCircle(circle, event.toCell)
-        this.scheduleNextCellTransition(circle)
-
-        // Re-check ball-ball collisions with new neighbors (via profile detector)
-        const neighbors = this.grid.getNearbyCircles(circle)
-        for (const neighbor of neighbors) {
-          const time = this.profile.ballBallDetector.detect(circle, neighbor)
-          if (time) {
-            const collision: Collision = {
-              type: 'Circle',
-              time,
-              circles: [circle, neighbor],
-              epochs: [circle.epoch, neighbor.epoch],
-              seq: this.nextSeq++,
-            }
-            this.heap.push(collision)
-          }
-        }
+        circle.epoch++
+        this.recompute(circle.id)
         continue
       }
 
