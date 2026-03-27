@@ -7,7 +7,24 @@ export function TransportBar({ bridge }: { bridge: SimulationBridge }) {
   const snap = useSimulation(bridge)
 
   return (
-    <div className="pointer-events-auto fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-xl bg-gray-900/90 px-4 py-2 shadow-lg backdrop-blur-sm">
+    <div className="pointer-events-auto fixed bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 rounded-xl bg-gray-900/90 px-4 pb-2 pt-2 shadow-lg backdrop-blur-sm">
+      {/* Timeline slider */}
+      <div className="flex w-full items-center gap-2">
+        <span className="font-mono text-[10px] text-gray-500">0s</span>
+        <input
+          type="range"
+          min={0}
+          max={snap.maxTime || 1}
+          step={0.0001}
+          value={snap.currentProgress}
+          onChange={(e) => bridge.callbacks.onSeek(Number(e.target.value))}
+          disabled={!snap.paused}
+          className="h-1 w-64 cursor-pointer appearance-none rounded-full bg-gray-700 accent-blue-500 disabled:cursor-default disabled:opacity-50"
+        />
+        <span className="font-mono text-[10px] text-gray-500">{snap.maxTime.toFixed(1)}s</span>
+      </div>
+
+      <div className="flex items-center gap-3">
       {/* Step Back */}
       <button
         onClick={() => bridge.callbacks.onStepBack()}
@@ -85,6 +102,7 @@ export function TransportBar({ bridge }: { bridge: SimulationBridge }) {
         className={`h-2 w-2 rounded-full ${snap.simulationDone ? 'bg-gray-500' : snap.bufferDepth > 10 ? 'bg-green-500' : 'bg-yellow-500'}`}
         title={`Buffer: ${snap.bufferDepth} events${snap.simulationDone ? ' (done)' : ''}`}
       />
+      </div>
     </div>
   )
 }

@@ -65,6 +65,7 @@ interface BallStateSnapshot {
 }
 let initialBallStates: Map<string, BallStateSnapshot> | null = null
 let lastConsumedEvent: EventEntry | null = null
+let seekTarget: number | null = null
 
 // --- Simulation Bridge (connects animation loop <-> React UI) ---
 const bridge = createSimulationBridge(config, {
@@ -72,6 +73,11 @@ const bridge = createSimulationBridge(config, {
   onPauseToggle: () => playbackController.togglePause(currentProgress),
   onStepForward: () => playbackController.requestStep(),
   onStepBack: () => playbackController.requestStepBack(),
+  onSeek: (time: number) => {
+    if (playbackController.paused) {
+      seekTarget = time
+    }
+  },
   onLiveUpdate: () => {
     if (simulationScene) simulationScene.updateFromConfig(config)
     if (threeRenderer) threeRenderer.shadowMap.enabled = config.shadowsEnabled
@@ -123,6 +129,7 @@ function startSimulation() {
   initialBallStates = null
   currentProgress = 0
   lastConsumedEvent = null
+  seekTarget = null
   playbackController.reset()
   // New canvas
   canvas2D = createCanvas(config)
@@ -383,18 +390,9 @@ function initScene() {
       }
     }
 
-    // Handle step-back: replay from initial state
-    if (playback.stepBack && eventHistory.length > 0 && initialBallStates) {
-      const poppedEvent = eventHistory.pop()!
-
-      // Push current nextEvent back to front of queue
-      if (nextEvent) {
-        simulatedResults.unshift(nextEvent)
-      }
-      nextEvent = poppedEvent
-
-      // Restore all balls to initial state
-      for (const [id, snap] of initialBallStates) {
+    // Restore all balls to initial state (shared by step-back and seek)
+    function restoreInitialState() {
+      for (const [id, snap] of initialBallStates!) {
         const ball = state[id]
         ball.position[0] = snap.position[0]
         ball.position[1] = snap.position[1]
@@ -413,22 +411,57 @@ function initScene() {
         ball.trajectory.c[0] = snap.position[0]
         ball.trajectory.c[1] = snap.position[1]
       }
+    }
 
-      // Replay all remaining history events (without re-adding to history)
-      const eventsToReplay = [...eventHistory]
+    // Replay events from scratch and update frozen progress
+    function replayAndFreeze(events: ReplayData[]) {
       eventHistory = []
-      for (const event of eventsToReplay) {
+      lastConsumedEvent = null
+      for (const event of events) {
         applyEventSnapshots(event)
       }
-
-      // Update frozen progress and current event
       if (eventHistory.length > 0) {
         playbackController.frozenProgress = eventHistory[eventHistory.length - 1].time
       } else {
         playbackController.frozenProgress = 0
-        lastConsumedEvent = null
       }
       currentProgress = playbackController.frozenProgress
+    }
+
+    // Handle step-back: replay from initial state
+    if (playback.stepBack && eventHistory.length > 0 && initialBallStates) {
+      const poppedEvent = eventHistory.pop()!
+
+      // Push current nextEvent back to front of queue
+      if (nextEvent) {
+        simulatedResults.unshift(nextEvent)
+      }
+      nextEvent = poppedEvent
+
+      restoreInitialState()
+      const eventsToReplay = [...eventHistory]
+      replayAndFreeze(eventsToReplay)
+    }
+
+    // Handle seek: replay from initial state to target time
+    if (seekTarget !== null && initialBallStates) {
+      const target = seekTarget
+      seekTarget = null
+
+      // Collect all available events in order: history + nextEvent + simulatedResults
+      const allEvents: ReplayData[] = [...eventHistory]
+      if (nextEvent) allEvents.push(nextEvent)
+      allEvents.push(...simulatedResults)
+
+      // Split at target time
+      const eventsToApply = allEvents.filter((e) => e.time <= target)
+      const eventsRemaining = allEvents.filter((e) => e.time > target)
+
+      // Restore and replay
+      restoreInitialState()
+      nextEvent = eventsRemaining.shift()
+      simulatedResults = eventsRemaining
+      replayAndFreeze(eventsToApply)
     }
 
     if (nextEvent) {
@@ -517,6 +550,13 @@ function initScene() {
       simulationDone,
       motionDistribution: motionDist,
       canStepBack: eventHistory.length > 0,
+      maxTime: simulatedResults.length > 0
+        ? simulatedResults[simulatedResults.length - 1].time
+        : nextEvent
+          ? nextEvent.time
+          : eventHistory.length > 0
+            ? eventHistory[eventHistory.length - 1].time
+            : progress,
       currentEvent: playbackController.paused ? lastConsumedEvent : null,
     })
 
