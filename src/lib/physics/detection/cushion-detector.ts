@@ -56,6 +56,30 @@ export class QuadraticCushionDetector implements CushionDetector {
       }
     }
 
+    // Direct contact checks: when clampToBounds places a ball exactly at a wall
+    // boundary, the quadratic equation has a root at t=0 which is filtered by the
+    // epsilon threshold above. Detect "ball at wall with velocity into wall" explicitly.
+    const WALL_TOL = 0.01 // mm
+    const VEL_TOL = 0.01 // mm/s
+    const INSTANT_DT = 1e-12
+
+    if (traj.c[1] > tableHeight - r - WALL_TOL && traj.b[1] > VEL_TOL && INSTANT_DT < minDt) {
+      minDt = INSTANT_DT
+      bestIdx = 0 // North
+    }
+    if (traj.c[0] > tableWidth - r - WALL_TOL && traj.b[0] > VEL_TOL && INSTANT_DT < minDt) {
+      minDt = INSTANT_DT
+      bestIdx = 1 // East
+    }
+    if (traj.c[1] < r + WALL_TOL && traj.b[1] < -VEL_TOL && INSTANT_DT < minDt) {
+      minDt = INSTANT_DT
+      bestIdx = 2 // South
+    }
+    if (traj.c[0] < r + WALL_TOL && traj.b[0] < -VEL_TOL && INSTANT_DT < minDt) {
+      minDt = INSTANT_DT
+      bestIdx = 3 // West
+    }
+
     return {
       type: 'Cushion',
       circles: [circle],
