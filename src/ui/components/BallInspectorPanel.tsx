@@ -35,7 +35,7 @@ export function BallInspectorPanel({ bridge }: { bridge: SimulationBridge }) {
   const ballEvents = snap.recentEvents.filter((e) => e.involvedBalls.includes(ballId))
 
   return (
-    <div className="pointer-events-auto fixed left-3 top-1/2 w-64 -translate-y-1/2 rounded-xl bg-gray-900/90 p-3 shadow-lg backdrop-blur-sm">
+    <div className="pointer-events-auto fixed left-2 top-16 max-h-[calc(100vh-10rem)] w-56 overflow-y-auto rounded-xl bg-gray-900/90 p-3 shadow-lg backdrop-blur-sm sm:top-1/2 sm:w-64 sm:-translate-y-1/2">
       {/* Header */}
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-semibold text-gray-300">Ball Inspector</span>

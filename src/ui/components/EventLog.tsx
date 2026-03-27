@@ -21,7 +21,7 @@ export function EventLog({ bridge }: { bridge: SimulationBridge }) {
   const [collapsed, setCollapsed] = useState(true)
 
   return (
-    <div className="pointer-events-auto fixed bottom-16 right-3 w-72">
+    <div className="pointer-events-auto fixed bottom-24 right-2 w-64 sm:bottom-16 sm:right-3 sm:w-72">
       {/* Header / toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}

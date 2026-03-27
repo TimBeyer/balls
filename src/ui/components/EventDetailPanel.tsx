@@ -119,7 +119,7 @@ export function EventDetailPanel({ bridge }: { bridge: SimulationBridge }) {
   const event = snap.currentEvent
 
   return (
-    <div className="pointer-events-auto fixed bottom-16 left-1/2 w-[480px] -translate-x-1/2 rounded-xl bg-gray-900/95 p-3 shadow-lg backdrop-blur-sm">
+    <div className="pointer-events-auto fixed bottom-24 left-2 right-2 mx-auto max-w-lg overflow-y-auto rounded-xl bg-gray-900/95 p-3 shadow-lg backdrop-blur-sm sm:bottom-20 sm:left-1/2 sm:right-auto sm:w-[480px] sm:-translate-x-1/2" style={{ maxHeight: 'calc(100vh - 10rem)' }}>
       {/* Header */}
       <div className="mb-2 flex items-center gap-3">
         <span className={`text-xs font-semibold ${EVENT_COLORS[event.type] ?? 'text-gray-400'}`}>
@@ -130,7 +130,7 @@ export function EventDetailPanel({ bridge }: { bridge: SimulationBridge }) {
       </div>
 
       {/* Ball deltas */}
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         {event.deltas.map((delta) => (
           <div key={delta.id} className="flex-1">
             <BallDeltaSection delta={delta} />
