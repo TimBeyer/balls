@@ -7,6 +7,7 @@ import { DebugVisualizationPanel } from './DebugVisualizationPanel'
 import { OverlayTogglesPanel } from './OverlayTogglesPanel'
 import { SimulationStatsPanel } from './SimulationStatsPanel'
 import { BallInspectorPanel } from './BallInspectorPanel'
+import { EventDetailPanel } from './EventDetailPanel'
 import { EventLog } from './EventLog'
 
 export function DebugOverlay({ bridge }: { bridge: SimulationBridge }) {
@@ -22,6 +23,7 @@ export function DebugOverlay({ bridge }: { bridge: SimulationBridge }) {
         <SimulationStatsPanel bridge={bridge} />
       </Sidebar>
       <BallInspectorPanel bridge={bridge} />
+      <EventDetailPanel bridge={bridge} />
       <EventLog bridge={bridge} />
     </>
   )

@@ -16,11 +16,28 @@ export interface BallData {
   time: number
 }
 
+export interface BallEventSnapshot {
+  id: string
+  position: [number, number]
+  velocity: [number, number]
+  speed: number
+  angularVelocity: [number, number, number]
+  motionState: MotionState
+  acceleration: [number, number]
+}
+
+export interface EventBallDelta {
+  id: string
+  before: BallEventSnapshot
+  after: BallEventSnapshot
+}
+
 export interface EventEntry {
   time: number
   type: EventType
   involvedBalls: string[]
   cushionType?: string
+  deltas?: EventBallDelta[]
 }
 
 export interface SimulationSnapshot {
@@ -35,6 +52,7 @@ export interface SimulationSnapshot {
   recentEvents: EventEntry[]
   motionDistribution: Record<string, number>
   canStepBack: boolean
+  currentEvent: EventEntry | null
 }
 
 export interface SimulationCallbacks {
@@ -70,6 +88,7 @@ function createInitialSnapshot(): SimulationSnapshot {
     recentEvents: [],
     motionDistribution: {},
     canStepBack: false,
+    currentEvent: null,
   }
 }
 

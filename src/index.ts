@@ -19,7 +19,7 @@ import { defaultPhysicsConfig } from './lib/physics-config'
 import { findScenario } from './lib/scenarios'
 import { PlaybackController } from './lib/debug/playback-controller'
 import { BallInspector } from './lib/debug/ball-inspector'
-import { createSimulationBridge, computeBallData } from './lib/debug/simulation-bridge'
+import { createSimulationBridge, computeBallData, type EventEntry, type BallEventSnapshot } from './lib/debug/simulation-bridge'
 import { mountDebugOverlay } from './ui/index'
 
 const config = createConfig()
@@ -64,6 +64,7 @@ interface BallStateSnapshot {
   trajectoryA: [number, number]
 }
 let initialBallStates: Map<string, BallStateSnapshot> | null = null
+let lastConsumedEvent: EventEntry | null = null
 
 // --- Simulation Bridge (connects animation loop <-> React UI) ---
 const bridge = createSimulationBridge(config, {
@@ -121,6 +122,7 @@ function startSimulation() {
   eventHistory = []
   initialBallStates = null
   currentProgress = 0
+  lastConsumedEvent = null
   playbackController.reset()
   // New canvas
   canvas2D = createCanvas(config)
@@ -286,10 +288,35 @@ function initScene() {
   }
   window.addEventListener('resize', resizeHandler)
 
+  function snapshotBallState(ball: Ball, atTime: number): BallEventSnapshot {
+    const dt = atTime - ball.time
+    const vx = ball.trajectory.b[0] + 2 * ball.trajectory.a[0] * dt
+    const vy = ball.trajectory.b[1] + 2 * ball.trajectory.a[1] * dt
+    const pos = ball.positionAtTime(atTime)
+    return {
+      id: ball.id,
+      position: [pos[0], pos[1]],
+      velocity: [vx, vy],
+      speed: Math.sqrt(vx * vx + vy * vy),
+      angularVelocity: [ball.angularVelocity[0], ball.angularVelocity[1], ball.angularVelocity[2]],
+      motionState: ball.motionState,
+      acceleration: [ball.trajectory.a[0], ball.trajectory.a[1]],
+    }
+  }
+
   function applyEventSnapshots(event: ReplayData, skipHistory = false) {
     if (!skipHistory) {
       eventHistory.push(event)
     }
+
+    // Capture pre-event state for all involved balls
+    const deltas = event.snapshots.map((snapshot) => {
+      const circle = state[snapshot.id]
+      const before = snapshotBallState(circle, event.time)
+      return { id: snapshot.id, before }
+    })
+
+    // Apply post-event state
     for (const snapshot of event.snapshots) {
       const circle = state[snapshot.id]
       circle.position[0] = snapshot.position[0]
@@ -313,13 +340,26 @@ function initScene() {
       circle.trajectory.c[1] = snapshot.position[1]
     }
 
-    // Push event to bridge for the event log
-    bridge.pushEvent({
+    // Build deltas with after state
+    const fullDeltas = deltas.map((d) => {
+      const circle = state[d.id]
+      return {
+        ...d,
+        after: snapshotBallState(circle, event.time),
+      }
+    })
+
+    // Build event entry with deltas
+    const entry: EventEntry = {
       time: event.time,
       type: event.type,
       involvedBalls: event.snapshots.map((s) => s.id),
       cushionType: event.cushionType,
-    })
+      deltas: fullDeltas,
+    }
+
+    bridge.pushEvent(entry)
+    lastConsumedEvent = entry
   }
 
   function step(timestamp: number) {
@@ -381,9 +421,13 @@ function initScene() {
         applyEventSnapshots(event)
       }
 
-      // Update frozen progress
-      playbackController.frozenProgress =
-        eventHistory.length > 0 ? eventHistory[eventHistory.length - 1].time : 0
+      // Update frozen progress and current event
+      if (eventHistory.length > 0) {
+        playbackController.frozenProgress = eventHistory[eventHistory.length - 1].time
+      } else {
+        playbackController.frozenProgress = 0
+        lastConsumedEvent = null
+      }
       currentProgress = playbackController.frozenProgress
     }
 
@@ -473,6 +517,7 @@ function initScene() {
       simulationDone,
       motionDistribution: motionDist,
       canStepBack: eventHistory.length > 0,
+      currentEvent: playbackController.paused ? lastConsumedEvent : null,
     })
 
     renderer.render(scene.scene, scene.camera)
