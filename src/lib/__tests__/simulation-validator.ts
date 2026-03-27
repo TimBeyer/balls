@@ -301,6 +301,57 @@ function checkStationaryStaysStationary(replay: ReplayData[]): Violation[] {
   return violations
 }
 
+/**
+ * Check that ball trajectories don't cross wall boundaries between events.
+ * For each ball, evaluates the trajectory at 5 sample points between consecutive
+ * events. If any sample is out of bounds, the cushion collision event was missed.
+ */
+function checkTrajectoryBounds(
+  replay: ReplayData[],
+  tableWidth: number,
+  tableHeight: number,
+): Violation[] {
+  const violations: Violation[] = []
+  const margin = 5 // mm — generous tolerance for slight overshoots
+  const SAMPLES = 5
+
+  // Track each ball's trajectory state from its snapshots
+  // At each event, we know the ball's trajectoryA, position, velocity, and time
+  // We can evaluate position between events using the quadratic polynomial
+  for (let i = 0; i < replay.length - 1; i++) {
+    const event = replay[i]
+    const nextEvent = replay[i + 1]
+    const dt = nextEvent.time - event.time
+    if (dt <= 0) continue
+
+    for (const snap of event.snapshots) {
+      if (snap.motionState === MotionState.Airborne) continue
+      const R = snap.radius
+
+      // Evaluate trajectory at sample points between events
+      for (let s = 1; s <= SAMPLES; s++) {
+        const t = (dt * s) / (SAMPLES + 1)
+        const x = snap.trajectoryA[0] * t * t + snap.velocity[0] * t + snap.position[0]
+        const y = snap.trajectoryA[1] * t * t + snap.velocity[1] * t + snap.position[1]
+
+        if (x < R - margin || x > tableWidth - R + margin || y < R - margin || y > tableHeight - R + margin) {
+          violations.push({
+            type: 'TrajectoryOutOfBounds',
+            time: event.time + t,
+            ballId: snap.id,
+            message:
+              `Ball ${snap.id.slice(0, 8)} trajectory goes out of bounds at t=${(event.time + t).toFixed(4)}: ` +
+              `pos=(${x.toFixed(1)}, ${y.toFixed(1)}), bounds=[${R}, ${(tableWidth - R).toFixed(0)}] x [${R}, ${(tableHeight - R).toFixed(0)}]`,
+            severity: 'error',
+          })
+          break // One violation per ball per event pair is enough
+        }
+      }
+    }
+  }
+  return violations
+}
+
 // ─── Main validator ───────────────────────────────────────────────────────────
 
 export function validateSimulation(
@@ -318,6 +369,7 @@ export function validateSimulation(
     ...checkInBounds(replay, tableWidth, tableHeight),
     ...checkEnergyNonIncreasing(replay, mass),
     ...checkStationaryStaysStationary(replay),
+    ...checkTrajectoryBounds(replay, tableWidth, tableHeight),
   ]
 
   return {

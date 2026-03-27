@@ -136,13 +136,22 @@ function makePairKey(a: string, b: string): string {
 
 /**
  * Advance a ball to the given time if it hasn't been advanced yet.
- * Rebases full trajectory (including acceleration direction) to match
- * current velocity. Safe here because updateTrajectory() and epoch++
- * happen on all affected balls after contact resolution completes.
+ * Clamps to table bounds (trajectory evaluation can overshoot walls),
+ * then rebases full trajectory including acceleration direction.
+ * Safe here because updateTrajectory() and epoch++ happen on all
+ * affected balls after contact resolution completes.
  */
-function ensureAdvanced(ball: Ball, t: number, profile: PhysicsProfile, config: PhysicsConfig): void {
+function ensureAdvanced(
+  ball: Ball,
+  t: number,
+  profile: PhysicsProfile,
+  config: PhysicsConfig,
+  tableWidth: number,
+  tableHeight: number,
+): void {
   if (ball.time === t) return
   ball.advanceTime(t)
+  ball.clampToBounds(tableWidth, tableHeight)
   ball.rebaseTrajectory(profile, config)
 }
 
@@ -211,7 +220,7 @@ export function resolveContacts(
         if (count > MAX_PAIR_SKIP) continue
 
         // Advance neighbor to current time (modifies state + rebases trajectory)
-        ensureAdvanced(neighbor, currentTime, profile, config)
+        ensureAdvanced(neighbor, currentTime, profile, config, tableWidth, tableHeight)
 
         snapApart(ball, neighbor)
 

@@ -195,9 +195,10 @@ export function simulate(
       continue
     }
 
-    // Collision event
+    // Collision event — advance and clamp (trajectory evaluation can overshoot walls)
     for (const circle of event.circles) {
       circle.advanceTime(event.time)
+      circle.clampToBounds(tableWidth, tableHeight)
     }
 
     if (event.type === 'Cushion') {
