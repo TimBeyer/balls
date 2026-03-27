@@ -36,11 +36,9 @@ export enum EventType {
   StateUpdate = 'STATE_UPDATE',
 }
 
-/** Clamp a ball's position to within table bounds (for balls that flew past while airborne) */
-function clampToBounds(ball: Ball, tableWidth: number, tableHeight: number) {
-  const R = ball.radius
-  ball.position[0] = Math.max(R, Math.min(tableWidth - R, ball.position[0]))
-  ball.position[1] = Math.max(R, Math.min(tableHeight - R, ball.position[1]))
+export interface SimulateOptions {
+  /** Enable runtime invariant assertions for debugging. */
+  debug?: boolean
 }
 
 function snapshotBall(ball: Ball): CircleSnapshot {
@@ -53,6 +51,68 @@ function snapshotBall(ball: Ball): CircleSnapshot {
     radius: ball.radius,
     time: ball.time,
     trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+  }
+}
+
+/**
+ * Runtime invariant check — asserts ball state is consistent.
+ * Only called when debug mode is enabled.
+ */
+function assertBallInvariants(
+  ball: Ball,
+  tableWidth: number,
+  tableHeight: number,
+  context: string,
+): void {
+  const R = ball.radius
+  const margin = 2 // mm tolerance
+
+  // No NaN/Infinity
+  if (
+    !Number.isFinite(ball.position[0]) ||
+    !Number.isFinite(ball.position[1]) ||
+    !Number.isFinite(ball.velocity[0]) ||
+    !Number.isFinite(ball.velocity[1])
+  ) {
+    throw new Error(`[${context}] Ball ${ball.id.slice(0, 8)} has NaN/Infinity in position or velocity`)
+  }
+
+  // Position in bounds (skip airborne balls)
+  if (ball.motionState !== MotionState.Airborne) {
+    if (
+      ball.position[0] < R - margin ||
+      ball.position[0] > tableWidth - R + margin ||
+      ball.position[1] < R - margin ||
+      ball.position[1] > tableHeight - R + margin
+    ) {
+      throw new Error(
+        `[${context}] Ball ${ball.id.slice(0, 8)} out of bounds: ` +
+          `pos=(${ball.position[0].toFixed(2)}, ${ball.position[1].toFixed(2)}), ` +
+          `bounds=[${R}, ${(tableWidth - R).toFixed(0)}] x [${R}, ${(tableHeight - R).toFixed(0)}]`,
+      )
+    }
+  }
+
+  // Trajectory.c matches position
+  const dc =
+    Math.abs(ball.trajectory.c[0] - ball.position[0]) + Math.abs(ball.trajectory.c[1] - ball.position[1])
+  if (dc > 0.01) {
+    throw new Error(
+      `[${context}] Ball ${ball.id.slice(0, 8)} trajectory.c mismatch: ` +
+        `pos=(${ball.position[0].toFixed(4)}, ${ball.position[1].toFixed(4)}) ` +
+        `traj.c=(${ball.trajectory.c[0].toFixed(4)}, ${ball.trajectory.c[1].toFixed(4)}) delta=${dc.toFixed(6)}`,
+    )
+  }
+}
+
+function assertAllBalls(
+  circles: Ball[],
+  tableWidth: number,
+  tableHeight: number,
+  context: string,
+): void {
+  for (const c of circles) {
+    assertBallInvariants(c, tableWidth, tableHeight, context)
   }
 }
 
@@ -74,7 +134,9 @@ export function simulate(
   circles: Ball[],
   physicsConfig: PhysicsConfig = defaultPhysicsConfig,
   profile: PhysicsProfile = createPoolPhysicsProfile(),
+  options?: SimulateOptions,
 ) {
+  const debug = options?.debug ?? false
   let currentTime = 0
   const replay: ReplayData[] = []
 
@@ -116,10 +178,12 @@ export function simulate(
 
       // Clamp position to within bounds — airborne balls may have flown past the
       // boundary, and contact resolution can push balls slightly past walls.
-      clampToBounds(ball, tableWidth, tableHeight)
+      ball.clampToBounds(tableWidth, tableHeight)
 
       ball.updateTrajectory(profile, physicsConfig)
       currentTime = stateEvent.time
+
+      if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after StateTransition at t=${currentTime}`)
 
       replay.push({
         time: currentTime,
@@ -199,8 +263,8 @@ export function simulate(
       profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
       c1.updateTrajectory(profile, physicsConfig)
       c2.updateTrajectory(profile, physicsConfig)
-      clampToBounds(c1, tableWidth, tableHeight)
-      clampToBounds(c2, tableWidth, tableHeight)
+      c1.clampToBounds(tableWidth, tableHeight)
+      c2.clampToBounds(tableWidth, tableHeight)
 
       // Wall clamping may have re-introduced overlap. Iteratively push apart
       // using half-overlap per ball (each iteration halves any remaining overlap
@@ -218,15 +282,14 @@ export function simulate(
         c1.position[1] += ny2 * half
         c2.position[0] -= nx2 * half
         c2.position[1] -= ny2 * half
-        clampToBounds(c1, tableWidth, tableHeight)
-        clampToBounds(c2, tableWidth, tableHeight)
+        c1.clampToBounds(tableWidth, tableHeight)
+        c2.clampToBounds(tableWidth, tableHeight)
       }
 
-      // Rebase trajectory.c to match actual position after clamp/push.
-      // Without this, the quartic detector uses stale position data, causing
-      // wrong collision times and visual teleportation.
-      c1.trajectory.c = [c1.position[0], c1.position[1], c1.position[2]]
-      c2.trajectory.c = [c2.position[0], c2.position[1], c2.position[2]]
+      // Final sync — clampToBounds auto-syncs when it clamps, but if no clamping
+      // occurred (balls not near walls), we still need to sync after snap-apart.
+      c1.syncTrajectoryOrigin()
+      c2.syncTrajectoryOrigin()
 
       currentTime = event.time
 
@@ -266,19 +329,21 @@ export function simulate(
       for (const ball of allAffected) {
         collisionFinder.recompute(ball.id)
       }
+
+      if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after CircleCollision at t=${currentTime}`)
       continue
     }
 
     // Clamp non-airborne balls that may have drifted past table bounds while airborne
     for (const circle of event.circles) {
       if (circle.motionState !== MotionState.Airborne) {
-        clampToBounds(circle, tableWidth, tableHeight)
-        // Rebase trajectory.c to match clamped position
-        circle.trajectory.c = [circle.position[0], circle.position[1], circle.position[2]]
+        circle.clampToBounds(tableWidth, tableHeight)
       }
     }
 
     currentTime = event.time
+
+    if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after Cushion at t=${currentTime}`)
 
     const replayData: ReplayData = {
       time: currentTime,

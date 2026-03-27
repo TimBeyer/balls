@@ -153,4 +153,33 @@ export default class Ball {
     this.trajectory = model.computeTrajectory(this, config)
     this.angularTrajectory = model.computeAngularTrajectory(this, config)
   }
+
+  /**
+   * Sync trajectory reference point to current ball state.
+   * Call after any position/velocity change that doesn't warrant a full
+   * trajectory recomputation (e.g., wall clamping, snap-apart).
+   * Does NOT touch trajectory.a (acceleration) or angularTrajectory.alpha.
+   */
+  syncTrajectoryOrigin(): void {
+    this.trajectory.c = [this.position[0], this.position[1], this.position[2]]
+    this.trajectory.b = [this.velocity[0], this.velocity[1], this.velocity[2]]
+    this.angularTrajectory.omega0 = [this.angularVelocity[0], this.angularVelocity[1], this.angularVelocity[2]]
+  }
+
+  /**
+   * Clamp position to within table bounds and sync trajectory origin.
+   * Returns true if position was modified.
+   */
+  clampToBounds(tableWidth: number, tableHeight: number): boolean {
+    const R = this.radius
+    const x = Math.max(R, Math.min(tableWidth - R, this.position[0]))
+    const y = Math.max(R, Math.min(tableHeight - R, this.position[1]))
+    const changed = x !== this.position[0] || y !== this.position[1]
+    if (changed) {
+      this.position[0] = x
+      this.position[1] = y
+      this.syncTrajectoryOrigin()
+    }
+    return changed
+  }
 }

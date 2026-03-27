@@ -225,13 +225,9 @@ export function resolveContacts(
         ball.updateTrajectory(profile, config)
         neighbor.updateTrajectory(profile, config)
 
-        // Clamp to table bounds
-        const R1 = ball.radius
-        ball.position[0] = Math.max(R1, Math.min(tableWidth - R1, ball.position[0]))
-        ball.position[1] = Math.max(R1, Math.min(tableHeight - R1, ball.position[1]))
-        const R2 = neighbor.radius
-        neighbor.position[0] = Math.max(R2, Math.min(tableWidth - R2, neighbor.position[0]))
-        neighbor.position[1] = Math.max(R2, Math.min(tableHeight - R2, neighbor.position[1]))
+        // Clamp to table bounds (auto-syncs trajectory origin)
+        ball.clampToBounds(tableWidth, tableHeight)
+        neighbor.clampToBounds(tableWidth, tableHeight)
 
         // After clamping, balls near walls may still overlap because the wall
         // prevented full separation. Iteratively push apart using half-overlap
@@ -249,15 +245,14 @@ export function resolveContacts(
           ball.position[1] += ny2 * half2
           neighbor.position[0] -= nx2 * half2
           neighbor.position[1] -= ny2 * half2
-          ball.position[0] = Math.max(R1, Math.min(tableWidth - R1, ball.position[0]))
-          ball.position[1] = Math.max(R1, Math.min(tableHeight - R1, ball.position[1]))
-          neighbor.position[0] = Math.max(R2, Math.min(tableWidth - R2, neighbor.position[0]))
-          neighbor.position[1] = Math.max(R2, Math.min(tableHeight - R2, neighbor.position[1]))
+          ball.clampToBounds(tableWidth, tableHeight)
+          neighbor.clampToBounds(tableWidth, tableHeight)
         }
 
-        // Rebase trajectory.c to match actual position after clamp/push
-        ball.trajectory.c = [ball.position[0], ball.position[1], ball.position[2]]
-        neighbor.trajectory.c = [neighbor.position[0], neighbor.position[1], neighbor.position[2]]
+        // Final sync — clampToBounds auto-syncs when it clamps, but if no clamping
+        // occurred we still need to sync after push-apart.
+        ball.syncTrajectoryOrigin()
+        neighbor.syncTrajectoryOrigin()
 
         // Increment epochs so old heap events for these balls are invalidated
         ball.epoch++

@@ -220,6 +220,7 @@ export class CollisionFinder {
         // (state transitions, collisions) that were scheduled from the old trajectory.
         // Then recompute() reschedules everything with the correct trajectory.
         circle.advanceTime(event.time)
+        circle.clampToBounds(this.tableWidth, this.tableHeight)
         circle.rebaseTrajectory(this.profile, this.physicsConfig)
 
         this.grid.moveCircle(circle, event.toCell)
