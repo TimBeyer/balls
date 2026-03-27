@@ -20,8 +20,7 @@ export function TransportBar({ bridge }: { bridge: SimulationBridge }) {
           step={0.0001}
           value={snap.currentProgress}
           onChange={(e) => bridge.callbacks.onSeek(Number(e.target.value))}
-          disabled={!snap.paused}
-          className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-gray-700 accent-blue-500 disabled:cursor-default disabled:opacity-50"
+          className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-gray-700 accent-blue-500"
         />
         <span className="shrink-0 font-mono text-[10px] text-gray-500">
           {snap.maxTime.toFixed(1)}s

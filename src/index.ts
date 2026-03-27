@@ -74,9 +74,7 @@ const bridge = createSimulationBridge(config, {
   onStepForward: () => playbackController.requestStep(),
   onStepBack: () => playbackController.requestStepBack(),
   onSeek: (time: number) => {
-    if (playbackController.paused) {
-      seekTarget = time
-    }
+    seekTarget = time
   },
   onLiveUpdate: () => {
     if (simulationScene) simulationScene.updateFromConfig(config)
@@ -462,6 +460,12 @@ function initScene() {
       nextEvent = eventsRemaining.shift()
       simulatedResults = eventsRemaining
       replayAndFreeze(eventsToApply)
+
+      // When seeking during playback, adjust start so realProgress matches target
+      if (!playbackController.paused) {
+        start = timestamp - (target / config.simulationSpeed) * 1000
+        currentProgress = target
+      }
     }
 
     if (nextEvent) {
