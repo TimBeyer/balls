@@ -18,7 +18,7 @@ const EPSILON = 1e-9
  * Handles degenerate cases where leading coefficients are zero
  * (quartic degenerates to cubic, cubic to quadratic, etc.)
  */
-export function smallestPositiveRoot(coeffs: number[]): number | undefined {
+export function smallestPositiveRoot(coeffs: number[], minDt?: number): number | undefined {
   // Strip leading near-zero coefficients
   let start = 0
   while (start < coeffs.length - 1 && Math.abs(coeffs[start]) < EPSILON) {
@@ -41,9 +41,10 @@ export function smallestPositiveRoot(coeffs: number[]): number | undefined {
     return undefined
   }
 
+  const threshold = minDt ?? EPSILON
   let best: number | undefined
   for (const r of roots) {
-    if (r > EPSILON && (best === undefined || r < best)) {
+    if (r > threshold && (best === undefined || r < best)) {
       best = r
     }
   }
@@ -71,7 +72,7 @@ export function smallestPositiveRoot(coeffs: number[]): number | undefined {
         t -= f / fp
         if (t <= 0) break
       }
-      if (t > EPSILON) {
+      if (t > threshold) {
         best = t
       }
     }

@@ -68,9 +68,18 @@ describe('ball-ball collision detection', () => {
     expect(time).toBeUndefined()
   })
 
-  it('returns undefined when circles are already overlapping', () => {
+  it('returns immediate collision when circles overlap and approach', () => {
     const c1 = createTestBall([100, 100], [1, 0], 10, 0)
     const c2 = createTestBall([110, 100], [-1, 0], 10, 0)
+    const time = ballBallDetector.detect(c1, c2)
+    // Overlapping (dist=10, rSum=20) and approaching → near-immediate collision
+    expect(time).toBeDefined()
+    expect(time).toBeLessThan(0.001)
+  })
+
+  it('returns undefined when circles overlap but separate', () => {
+    const c1 = createTestBall([100, 100], [-1, 0], 10, 0)
+    const c2 = createTestBall([110, 100], [1, 0], 10, 0)
     const time = ballBallDetector.detect(c1, c2)
     expect(time).toBeUndefined()
   })

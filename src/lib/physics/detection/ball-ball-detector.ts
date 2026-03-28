@@ -56,33 +56,85 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const Cy = rebaseB.c1 - rebaseA.c1
     const Cz = rebaseB.c2 - rebaseA.c2
 
-    // Overlap guard — skip if balls already overlap (the quartic would find the
-    // "separation" time and fire a backwards collision).
-    // Contact collisions (dist ≈ rSum) are handled by the ContactResolver in
-    // simulate(), not by this detector. This detector only finds future collisions.
+    // Overlap guard — handle genuinely overlapping balls (> 0.5mm overlap)
+    // directly without the quartic solver.
+    // Smaller overlaps (float noise from snap-apart, up to ~0.5mm) fall through
+    // to the quartic, which correctly finds future collisions (e.g., when a
+    // decelerating ball reverses direction after a missed state transition).
     const distSq = Cx * Cx + Cy * Cy + Cz * Cz
     const rSum = circleA.radius + circleB.radius
-    if (distSq < rSum * rSum) return undefined
+    const guardDist = rSum - 0.5
+    if (distSq < guardDist * guardDist) {
+      // Genuine overlap (> 0.5mm). Check whether approaching or separating.
+      // d(|d|²)/dt at t=0 = 2*(C·B). Negative means distance is shrinking.
+      const dDistSqDt = 2 * (Cx * Bx + Cy * By + Cz * Bz)
+      if (dDistSqDt >= 0) return undefined // Separating — will self-resolve
 
-    // Quartic coefficients
+      // Approaching while overlapping — schedule near-immediate collision
+      return refTime + 1e-12
+    }
+
+    // Quartic coefficients for |d(t)|² = rSum²
     const coeff4 = Ax * Ax + Ay * Ay + Az * Az
     const coeff3 = 2 * (Ax * Bx + Ay * By + Az * Bz)
     const coeff2 = Bx * Bx + By * By + Bz * Bz + 2 * (Ax * Cx + Ay * Cy + Az * Cz)
     const coeff1 = 2 * (Bx * Cx + By * Cy + Bz * Cz)
-    const coeff0 = Cx * Cx + Cy * Cy + Cz * Cz - rSum * rSum
+    const coeff0 = distSq - rSum * rSum
 
-    const dt = smallestPositiveRoot([coeff4, coeff3, coeff2, coeff1, coeff0])
+    // When balls are at near-contact distance (coeff0 ≈ 0), the quartic has a
+    // spurious near-zero root at the current contact point. Skip it by raising
+    // the minimum root threshold so the solver finds the actual NEXT collision
+    // (e.g., a decelerating ball that reverses direction toward its neighbor).
+    const nearContact = Math.abs(coeff0) < rSum * 0.5
+    const minRootDt = nearContact ? 1e-6 : undefined
+
+    let dt = smallestPositiveRoot([coeff4, coeff3, coeff2, coeff1, coeff0], minRootDt)
     if (dt === undefined) return undefined
 
-    // Verify the root actually produces a collision (reject spurious roots from
-    // floating-point imprecision in the quartic solver)
-    const dt2 = dt * dt
-    const dx = Ax * dt2 + Bx * dt + Cx
-    const dy = Ay * dt2 + By * dt + Cy
-    const dz = Az * dt2 + Bz * dt + Cz
-    const distSqAtRoot = dx * dx + dy * dy + dz * dz
-    // Allow 1% tolerance for numerical imprecision
-    if (distSqAtRoot > rSum * rSum * 1.02) return undefined
+    // Verify the root produces a collision using the exact distance function.
+    // Ferrari's method can produce spurious roots when coefficients are ill-conditioned
+    // (common with large sliding friction accelerations near contact distance).
+    const rSumSq = rSum * rSum
+    const verifyDistSq = (t: number): number => {
+      const t2 = t * t
+      const ex = Ax * t2 + Bx * t + Cx
+      const ey = Ay * t2 + By * t + Cy
+      const ez = Az * t2 + Bz * t + Cz
+      return ex * ex + ey * ey + ez * ez
+    }
+
+    if (verifyDistSq(dt) > rSumSq * 1.02) {
+      // Root failed verification — Ferrari's method produced a spurious root
+      // (common when coefficients are ill-conditioned near contact distance).
+      // Use bisection on the exact distance function as a robust fallback.
+      // Scan at 5ms intervals up to 0.5s to find a bracket where distSq crosses rSumSq,
+      // then bisect to find the precise collision time.
+      const SCAN_STEP = 0.005
+      const SCAN_MAX = 0.5
+      let lo: number | undefined
+      let prevDistSq = distSq
+      for (let t = SCAN_STEP; t <= SCAN_MAX; t += SCAN_STEP) {
+        const curDistSq = verifyDistSq(t)
+        if (prevDistSq >= rSumSq && curDistSq < rSumSq) {
+          lo = t - SCAN_STEP
+          break
+        }
+        prevDistSq = curDistSq
+      }
+      if (lo !== undefined) {
+        // Bisect within [lo, lo + SCAN_STEP]
+        let a = lo
+        let b = lo + SCAN_STEP
+        for (let i = 0; i < 40; i++) {
+          const mid = (a + b) / 2
+          if (verifyDistSq(mid) > rSumSq) a = mid
+          else b = mid
+        }
+        dt = (a + b) / 2
+      } else {
+        return undefined
+      }
+    }
 
     return dt + refTime
   }
