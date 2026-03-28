@@ -434,11 +434,54 @@ function initScene() {
       const eventsToApply = allEvents.filter((e) => e.time <= target)
       const eventsRemaining = allEvents.filter((e) => e.time > target)
 
+      // Capture pre-seek positions for diagnostic
+      const preSeekPositions = new Map<string, { pos: [number, number]; time: number }>()
+      for (const id of circleIds) {
+        const ball = state[id]
+        const pos = ball.positionAtTime(currentProgress)
+        preSeekPositions.set(id, { pos: [pos[0], pos[1]], time: ball.time })
+      }
+
       restoreInitialState()
       nextEvent = eventsRemaining.shift()
       simulatedResults = eventsRemaining
       replayEvents(eventsToApply)
       currentProgress = target
+
+      // Diagnostic: check for balls with suspicious positions after seek
+      for (const id of circleIds) {
+        const ball = state[id]
+        const pos = ball.positionAtTime(target)
+        const dt = target - ball.time
+        // Check if ball is way outside table bounds (stale trajectory)
+        if (
+          pos[0] < -ball.radius ||
+          pos[0] > config.tableWidth + ball.radius ||
+          pos[1] < -ball.radius ||
+          pos[1] > config.tableHeight + ball.radius
+        ) {
+          console.warn(`[SEEK DIAG] Ball ${id} OUT OF BOUNDS after seek to ${target}:`, {
+            position: pos,
+            ballTime: ball.time,
+            dt,
+            trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+            trajectoryB: [ball.trajectory.b[0], ball.trajectory.b[1]],
+            trajectoryC: [ball.trajectory.c[0], ball.trajectory.c[1]],
+            maxDt: ball.trajectory.maxDt,
+            motionState: ball.motionState,
+            lastEventCount: eventsToApply.filter((e) => e.snapshots.some((s) => s.id === id)).length,
+          })
+        }
+        // Check if dt exceeds trajectory validity
+        if (dt > ball.trajectory.maxDt + 0.001) {
+          console.warn(`[SEEK DIAG] Ball ${id} dt (${dt.toFixed(4)}) exceeds maxDt (${ball.trajectory.maxDt.toFixed(4)}) after seek to ${target}:`, {
+            position: pos,
+            ballTime: ball.time,
+            motionState: ball.motionState,
+            trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+          })
+        }
+      }
     } else {
       const action = playbackController.consumeAction()
       if (action) {
