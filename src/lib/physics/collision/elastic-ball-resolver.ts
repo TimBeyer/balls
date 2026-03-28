@@ -1,24 +1,29 @@
 /**
- * Elastic ball-ball collision resolver.
+ * Ball-ball collision resolver with progressive restitution.
  *
- * Standard 2D elastic collision with mass support.
- * Angular velocity is preserved unchanged through ball-ball collisions
- * (elastic, frictionless, instantaneous model — no spin transfer).
- * After collision, updateTrajectory() re-determines the motion state;
- * the ball will typically enter Sliding and friction naturally evolves it to Rolling.
+ * Uses the standard impulse-based collision formula with a coefficient of
+ * restitution `e` that varies smoothly with approach speed:
  *
- * Below INELASTIC_THRESHOLD, collisions are perfectly inelastic along the normal:
- * both balls receive the center-of-mass normal velocity (no bounce). This prevents
- * Zeno cascades in low-energy clusters where balls would otherwise bounce infinitely
- * at diminishing intervals.
+ *   e(v) = clamp((|v_approach| - V_LOW) / (V_HIGH - V_LOW), 0, 1)
+ *
+ * - Below V_LOW (5 mm/s): perfectly inelastic (e=0), both balls get COM velocity
+ * - Above V_HIGH (50 mm/s): perfectly elastic (e=1), standard momentum exchange
+ * - Between: linear ramp — absorbs energy progressively as balls settle
+ *
+ * This prevents Zeno cascades in low-energy clusters. A ball approaching at 30 mm/s
+ * loses ~45% of its normal velocity, settles in ~3 bounces instead of ~20+.
+ *
+ * Angular velocity is preserved unchanged (elastic, frictionless, instantaneous model).
  */
 
 import type Ball from '../../ball'
 import type { PhysicsConfig } from '../../physics-config'
 import type { BallCollisionResolver } from './collision-resolver'
 
-/** Approach speed (mm/s) below which collisions become perfectly inelastic */
-const INELASTIC_THRESHOLD = 5
+/** Approach speed (mm/s) below which e=0 (perfectly inelastic) */
+const V_LOW = 5
+/** Approach speed (mm/s) above which e=1 (perfectly elastic) */
+const V_HIGH = 50
 
 export class ElasticBallResolver implements BallCollisionResolver {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -45,29 +50,22 @@ export class ElasticBallResolver implements BallCollisionResolver {
     const vx2Remainder = vx2 - dx * v2dot,
       vy2Remainder = vy2 - dy * v2dot
 
-    // Approach speed along the normal (positive when approaching)
-    const approachSpeed = v1dot - v2dot
+    // Progressive coefficient of restitution: ramps linearly from 0 to 1
+    const absApproach = Math.abs(v1dot - v2dot)
+    const e = Math.min(1, Math.max(0, (absApproach - V_LOW) / (V_HIGH - V_LOW)))
 
-    // Center-of-mass velocity along the normal
-    const comVelocity = (c1.mass * v1dot + c2.mass * v2dot) / (c1.mass + c2.mass)
+    // Standard restitution formula:
+    //   v1_after = ((m1 - e*m2)*v1n + (1+e)*m2*v2n) / (m1+m2)
+    //   v2_after = ((m2 - e*m1)*v2n + (1+e)*m1*v1n) / (m1+m2)
+    // When e=1: elastic. When e=0: both get COM velocity.
+    const totalMass = c1.mass + c2.mass
+    const v1NormalAfter = ((c1.mass - e * c2.mass) * v1dot + (1 + e) * c2.mass * v2dot) / totalMass
+    const v2NormalAfter = ((c2.mass - e * c1.mass) * v2dot + (1 + e) * c1.mass * v1dot) / totalMass
 
-    if (Math.abs(approachSpeed) < INELASTIC_THRESHOLD) {
-      // Perfectly inelastic: both balls get COM velocity along normal (no bounce).
-      // At ≤5 mm/s a ball travels <0.2mm before friction stops it — sub-perceptible.
-      c1.velocity[0] = dx * comVelocity + vx1Remainder
-      c1.velocity[1] = dy * comVelocity + vy1Remainder
-      c2.velocity[0] = dx * comVelocity + vx2Remainder
-      c2.velocity[1] = dy * comVelocity + vy2Remainder
-    } else {
-      // Standard elastic collision along the normal
-      const v1NormalAfter = 2 * comVelocity - v1dot
-      const v2NormalAfter = 2 * comVelocity - v2dot
-
-      c1.velocity[0] = dx * v1NormalAfter + vx1Remainder
-      c1.velocity[1] = dy * v1NormalAfter + vy1Remainder
-      c2.velocity[0] = dx * v2NormalAfter + vx2Remainder
-      c2.velocity[1] = dy * v2NormalAfter + vy2Remainder
-    }
+    c1.velocity[0] = dx * v1NormalAfter + vx1Remainder
+    c1.velocity[1] = dy * v1NormalAfter + vy1Remainder
+    c2.velocity[0] = dx * v2NormalAfter + vx2Remainder
+    c2.velocity[1] = dy * v2NormalAfter + vy2Remainder
 
     // Zero z-velocity (we only use z for airborne balls, not ball-ball collisions)
     c1.velocity[2] = 0

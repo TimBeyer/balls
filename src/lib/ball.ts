@@ -138,7 +138,27 @@ export default class Ball {
    * Call after any velocity/angular velocity/state change.
    */
   updateTrajectory(profile: PhysicsProfile, config: PhysicsConfig): void {
-    this.motionState = profile.determineMotionState(this.velocity, this.angularVelocity, this.radius)
+    // Energy quiescence: when a ball with friction is moving below a perceptible
+    // speed, snap directly to Stationary. At 2 mm/s with μ_rolling=0.01, a ball
+    // travels ~0.2mm before stopping — invisible at 60fps. This skips the
+    // Sliding→Rolling→Stationary state transition chain, eliminating thousands
+    // of events in dense cluster settling.
+    const QUIESCENCE_SPEED = 2 // mm/s
+    const speed2D = Math.sqrt(this.velocity[0] ** 2 + this.velocity[1] ** 2)
+    const hasFriction = this.physicsParams.muSliding > 0 || this.physicsParams.muRolling > 0
+    if (hasFriction && speed2D > 0 && speed2D <= QUIESCENCE_SPEED && this.velocity[2] <= 0) {
+      const hasZSpin = Math.abs(this.angularVelocity[2]) > 1e-6
+      this.velocity[0] = 0
+      this.velocity[1] = 0
+      this.velocity[2] = 0
+      this.angularVelocity[0] = 0
+      this.angularVelocity[1] = 0
+      if (!hasZSpin) this.angularVelocity[2] = 0
+      this.motionState = hasZSpin ? MotionState.Spinning : MotionState.Stationary
+    } else {
+      this.motionState = profile.determineMotionState(this.velocity, this.angularVelocity, this.radius)
+    }
+
     this.rebaseTrajectory(profile, config)
   }
 

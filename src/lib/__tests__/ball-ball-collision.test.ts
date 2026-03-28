@@ -148,7 +148,7 @@ describe('ball-ball collisions', () => {
     expect(Math.abs(b.velocity[0])).toBeLessThan(1)
   })
 
-  it('at threshold speed: elastic (threshold is strict <)', () => {
+  it('at threshold speed: inelastic (e=0 at V_LOW boundary)', () => {
     const { replay } = runScenario(findScenario('at-threshold-speed'))
     const collisions = getCollisionEvents(replay)
     expect(collisions.length).toBeGreaterThanOrEqual(1)
@@ -157,13 +157,13 @@ describe('ball-ball collisions', () => {
     const a = getSnapshotById(post, 'a')!
     const b = getSnapshotById(post, 'b')!
 
-    // Approach speed = 5 mm/s → |approachSpeed| is NOT < 5 (strict <), so elastic
-    // Velocities swap: a gets -2.5, b gets +2.5
-    expect(a.velocity[0]).toBeCloseTo(-2.5, 0)
-    expect(b.velocity[0]).toBeCloseTo(2.5, 0)
+    // Approach speed = 5 mm/s = V_LOW → e=0, perfectly inelastic
+    // COM velocity = 0, so both balls should have ~0 normal velocity
+    expect(Math.abs(a.velocity[0])).toBeLessThan(1)
+    expect(Math.abs(b.velocity[0])).toBeLessThan(1)
   })
 
-  it('just above threshold: normal elastic collision', () => {
+  it('just above threshold: nearly inelastic (progressive restitution)', () => {
     const { replay } = runScenario(findScenario('just-above-threshold'))
     const collisions = getCollisionEvents(replay)
     expect(collisions.length).toBeGreaterThanOrEqual(1)
@@ -172,10 +172,10 @@ describe('ball-ball collisions', () => {
     const a = getSnapshotById(post, 'a')!
     const b = getSnapshotById(post, 'b')!
 
-    // Approach speed = 6 mm/s > 5 mm/s → elastic
-    // Velocities should swap: a gets -3, b gets +3
-    expect(a.velocity[0]).toBeCloseTo(-3, 0)
-    expect(b.velocity[0]).toBeCloseTo(3, 0)
+    // Approach speed = 6 mm/s, e = (6-5)/(50-5) ≈ 0.022 → nearly inelastic
+    // Both balls should have low velocity (close to COM = 0)
+    expect(Math.abs(a.velocity[0])).toBeLessThan(1)
+    expect(Math.abs(b.velocity[0])).toBeLessThan(1)
   })
 
   it('momentum conserved with pool physics', () => {
