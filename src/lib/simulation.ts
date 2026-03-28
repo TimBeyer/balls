@@ -7,7 +7,7 @@ import type { PhysicsProfile } from './physics/physics-profile'
 import { createPoolPhysicsProfile } from './physics/physics-profile'
 import type Vector3D from './vector3d'
 import type { Han2005CushionResolver } from './physics/collision/han2005-cushion-resolver'
-import { resolveContacts } from './physics/collision/contact-resolver'
+import { solveContactCluster } from './physics/collision/contact-cluster-solver'
 
 export interface CircleSnapshot {
   id: string
@@ -163,7 +163,7 @@ export function simulate(
   //   BUDGET+1 to 2*BUDGET: force fully inelastic
   //   >2*BUDGET: suppress pair (skip detection in recompute until window resets)
   const pairCollisionCounts = new Map<string, { count: number; windowStart: number }>()
-  const PAIR_BUDGET = 6
+  const PAIR_BUDGET = 30
   const PAIR_WINDOW = 0.2 // seconds
   // Suppressed pairs: these pairs are excluded from ball-ball detection during
   // recompute() until the time window expires. Stored as "id1\0id2" where id1 < id2.
@@ -289,40 +289,15 @@ export function simulate(
         if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.South)
       }
     } else {
-      // Ball-ball collision
+      // Ball-ball collision — solve full contact cluster simultaneously
       const c1 = event.circles[0]
       const c2 = event.circles[1]
 
-      // Snap to exact touching distance before resolving. Floating-point evaluation
-      // of the trajectory polynomial can leave balls slightly overlapping at the
-      // predicted collision time, which would cause the overlap guard to silently
-      // skip future collisions for this pair.
-      {
-        const dx = c1.position[0] - c2.position[0]
-        const dy = c1.position[1] - c2.position[1]
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        const rSum = c1.radius + c2.radius
-        if (dist > 0 && dist !== rSum) {
-          const half = (rSum - dist) / 2
-          const nx = dx / dist
-          const ny = dy / dist
-          c1.position[0] += nx * half
-          c1.position[1] += ny * half
-          c2.position[0] -= nx * half
-          c2.position[1] -= ny * half
-        }
-      }
-
-      // Pair rate limiting: prevent Zeno cascades from external forces
+      // Pair rate limiting safety net: suppress truly pathological pairs
       const pairTier = checkPairBudget(c1.id, c2.id, event.time)
 
       if (pairTier === 2) {
-        // Way over budget — pair is now suppressed globally. Recompute events
-        // for both balls; getSuppressedNeighbors will exclude them from each
-        // other's detection. The pair re-enables when the time window expires.
-        // Note: friction may curve trajectories into brief overlap (~1-2mm)
-        // during suppression — this is a known limitation of the pair suppression
-        // mechanism, acceptable to prevent infinite Zeno cascades.
+        // Way over budget — suppress pair globally until window expires
         c1.updateTrajectory(profile, physicsConfig)
         c2.updateTrajectory(profile, physicsConfig)
         c1.clampToBounds(tableWidth, tableHeight)
@@ -336,70 +311,10 @@ export function simulate(
         continue
       }
 
-      if (pairTier === 1) {
-        // Over budget — force fully inelastic (no bounce)
-        const ddx = c1.position[0] - c2.position[0]
-        const ddy = c1.position[1] - c2.position[1]
-        const dd = Math.sqrt(ddx * ddx + ddy * ddy) || 1
-        const nnx = ddx / dd
-        const nny = ddy / dd
-        const v1n = c1.velocity[0] * nnx + c1.velocity[1] * nny
-        const v2n = c2.velocity[0] * nnx + c2.velocity[1] * nny
-        const comVn = (c1.mass * v1n + c2.mass * v2n) / (c1.mass + c2.mass)
-        c1.velocity[0] += (comVn - v1n) * nnx
-        c1.velocity[1] += (comVn - v1n) * nny
-        c2.velocity[0] += (comVn - v2n) * nnx
-        c2.velocity[1] += (comVn - v2n) * nny
-      } else {
-        profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
-      }
-      c1.updateTrajectory(profile, physicsConfig)
-      c2.updateTrajectory(profile, physicsConfig)
-      c1.clampToBounds(tableWidth, tableHeight)
-      c2.clampToBounds(tableWidth, tableHeight)
-
-      // Wall clamping may have re-introduced overlap. Iteratively push apart
-      // using half-overlap per ball (each iteration halves any remaining overlap
-      // from wall-locked balls that can't move).
-      for (let sep = 0; sep < 5; sep++) {
-        const dx2 = c1.position[0] - c2.position[0]
-        const dy2 = c1.position[1] - c2.position[1]
-        const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2)
-        const rSum2 = c1.radius + c2.radius
-        if (dist2 <= 0 || dist2 >= rSum2) break
-        const half = (rSum2 - dist2) / 2
-        const nx2 = dx2 / dist2
-        const ny2 = dy2 / dist2
-        c1.position[0] += nx2 * half
-        c1.position[1] += ny2 * half
-        c2.position[0] -= nx2 * half
-        c2.position[1] -= ny2 * half
-        c1.clampToBounds(tableWidth, tableHeight)
-        c2.clampToBounds(tableWidth, tableHeight)
-      }
-
-      // Final sync — clampToBounds auto-syncs when it clamps, but if no clamping
-      // occurred (balls not near walls), we still need to sync after snap-apart.
-      c1.syncTrajectoryOrigin()
-      c2.syncTrajectoryOrigin()
-
-      currentTime = event.time
-
-      // Record primary collision BEFORE contact resolution (which may move c1/c2)
-      replay.push({
-        time: currentTime,
-        type: EventType.CircleCollision,
-        snapshots: event.circles.map(snapshotBall),
-      })
-
-      // Contact resolution: handle all instant cascading contacts inline,
-      // outside the event queue. This prevents epoch invalidation from
-      // causing missed collisions when multiple balls collide simultaneously.
-      const contactResult = resolveContacts(
+      // Solve the full contact cluster (primary pair + all touching neighbors)
+      const clusterResult = solveContactCluster(
         [c1, c2],
-        circles.length,
         collisionFinder.spatialGrid,
-        profile.ballCollisionResolver,
         profile,
         physicsConfig,
         event.time,
@@ -407,18 +322,15 @@ export function simulate(
         tableHeight,
       )
 
-      // Record contact chain collisions
-      for (const contactEvent of contactResult.replayEvents) {
-        replay.push({
-          time: contactEvent.time,
-          type: EventType.CircleCollision,
-          snapshots: contactEvent.snapshots,
-        })
+      currentTime = event.time
+
+      // Record all collision events from the cluster solve
+      for (const replayEvent of clusterResult.replayEvents) {
+        replay.push(replayEvent)
       }
 
-      // Recompute for ALL affected balls (primary + contact chain)
-      const allAffected = new Set([c1, c2, ...contactResult.affectedBalls])
-      for (const ball of allAffected) {
+      // Recompute for ALL affected balls
+      for (const ball of clusterResult.affectedBalls) {
         collisionFinder.recompute(ball.id, getSuppressedNeighbors(ball.id))
       }
 

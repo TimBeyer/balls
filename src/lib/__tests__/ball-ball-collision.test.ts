@@ -163,7 +163,7 @@ describe('ball-ball collisions', () => {
     expect(Math.abs(b.velocity[0])).toBeLessThan(1)
   })
 
-  it('just above threshold: nearly inelastic (progressive restitution)', () => {
+  it('just above threshold: elastic with fixed eBallBall', () => {
     const { replay } = runScenario(findScenario('just-above-threshold'))
     const collisions = getCollisionEvents(replay)
     expect(collisions.length).toBeGreaterThanOrEqual(1)
@@ -172,10 +172,10 @@ describe('ball-ball collisions', () => {
     const a = getSnapshotById(post, 'a')!
     const b = getSnapshotById(post, 'b')!
 
-    // Approach speed = 6 mm/s, e = (6-5)/(50-5) ≈ 0.022 → nearly inelastic
-    // Both balls should have low velocity (close to COM = 0)
-    expect(Math.abs(a.velocity[0])).toBeLessThan(1)
-    expect(Math.abs(b.velocity[0])).toBeLessThan(1)
+    // Approach speed = 6 mm/s > V_LOW, zero-friction eBallBall=1.0 → fully elastic
+    // Velocities swap: a was +3, b was -3 → a gets -3, b gets +3
+    expect(a.velocity[0]).toBeCloseTo(-3, 0)
+    expect(b.velocity[0]).toBeCloseTo(3, 0)
   })
 
   it('momentum conserved with pool physics', () => {

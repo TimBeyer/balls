@@ -1,21 +1,17 @@
 /**
- * Ball-ball collision resolver with progressive restitution.
+ * Ball-ball collision resolver with fixed restitution coefficient.
  *
- * Uses the standard impulse-based collision formula with a coefficient of
- * restitution `e` that varies smoothly with approach speed:
+ * Uses the standard impulse-based collision formula with per-ball eBallBall
+ * coefficient averaged between both balls (like pooltool):
  *
- *   e(v) = clamp((|v_approach| - V_LOW) / (V_HIGH - V_LOW), 0, 1)
+ *   e = avg(ball1.eBallBall, ball2.eBallBall)
  *
- * - Below V_LOW (5 mm/s): perfectly inelastic (e=0), both balls get COM velocity
- * - Above V_HIGH (50 mm/s): perfectly elastic (e=1), standard momentum exchange
- * - Between: linear ramp — absorbs energy progressively as balls settle
+ * Below V_LOW (5 mm/s approach speed): e=0 (perfectly inelastic) to prevent
+ * Zeno cascades at micro-speeds.
  *
- * This prevents Zeno cascades in low-energy clusters. A ball approaching at 30 mm/s
- * loses ~45% of its normal velocity, settles in ~3 bounces instead of ~20+.
- *
- * Each ball carries a per-ball `eBallBall` parameter (physical coefficient of
- * restitution, e.g. 0.93 for pool balls). This is not yet used in the ramp —
- * it requires continuous contact handling to avoid pair-suppression pass-through.
+ * This resolver is used as a fallback by the simple 2D profile. The pool profile
+ * uses the contact cluster solver (contact-cluster-solver.ts) which handles
+ * multi-ball clusters simultaneously.
  *
  * Angular velocity is preserved unchanged (elastic, frictionless, instantaneous model).
  */
@@ -26,8 +22,6 @@ import type { BallCollisionResolver } from './collision-resolver'
 
 /** Approach speed (mm/s) below which e=0 (perfectly inelastic) */
 const V_LOW = 5
-/** Approach speed (mm/s) above which e=1 (perfectly elastic) */
-const V_HIGH = 50
 
 export class ElasticBallResolver implements BallCollisionResolver {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -54,9 +48,9 @@ export class ElasticBallResolver implements BallCollisionResolver {
     const vx2Remainder = vx2 - dx * v2dot,
       vy2Remainder = vy2 - dy * v2dot
 
-    // Progressive coefficient of restitution: ramps linearly from 0 to 1
+    // Fixed coefficient of restitution from per-ball eBallBall, averaged
     const absApproach = Math.abs(v1dot - v2dot)
-    const e = Math.min(1, Math.max(0, (absApproach - V_LOW) / (V_HIGH - V_LOW)))
+    const e = absApproach <= V_LOW ? 0 : (c1.physicsParams.eBallBall + c2.physicsParams.eBallBall) / 2
 
     // Standard restitution formula:
     //   v1_after = ((m1 - e*m2)*v1n + (1+e)*m2*v2n) / (m1+m2)
