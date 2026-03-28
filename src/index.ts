@@ -47,7 +47,7 @@ let threeRenderer: THREE.WebGLRenderer | null = null
 let simulationScene: SimulationScene | null = null
 let stats: Stats | null = null
 let animationFrameId: number | null = null
-let start: number | undefined
+let prevTimestamp: number | null = null
 let resizeHandler: (() => void) | null = null
 const playbackController = new PlaybackController()
 const ballInspector = new BallInspector()
@@ -71,7 +71,7 @@ let savedCameraState: CameraState | null = null
 // --- Simulation Bridge (connects animation loop <-> React UI) ---
 const bridge = createSimulationBridge(config, {
   onRestartRequired: () => startSimulation(),
-  onPauseToggle: () => playbackController.togglePause(currentProgress),
+  onPauseToggle: () => playbackController.togglePause(),
   onStepForward: () => playbackController.requestStep(),
   onStepBack: () => playbackController.requestStepBack(),
   onStepToNextBallEvent: () => {
@@ -131,7 +131,7 @@ function startSimulation() {
   simulatedResults = []
   fetchingMore = false
   simulationDone = false
-  start = undefined
+  prevTimestamp = null
   simulationScene = null
   eventHistory = []
   initialBallStates = null
@@ -384,25 +384,11 @@ function initScene() {
   function step(timestamp: number) {
     stats!.begin()
 
-    if (!start) start = timestamp
+    // Delta-based time tracking — no wall-clock drift, no pause/unpause sync issues
+    const deltaMs = prevTimestamp ? timestamp - prevTimestamp : 0
+    prevTimestamp = timestamp
 
-    // Convert ms timestamp to seconds to match physics time units
-    const realProgress = ((timestamp - start) / 1000) * config.simulationSpeed
-
-    // Playback controller determines effective progress
-    const playback = playbackController.resolveProgress(realProgress, nextEvent)
-    let progress = playback.progress
-    currentProgress = progress
-
-    // When unpausing, adjust start to prevent time jump
-    if (!playbackController.paused && start !== undefined) {
-      const expectedProgress = ((timestamp - start) / 1000) * config.simulationSpeed
-      if (Math.abs(expectedProgress - progress) > 0.01) {
-        start = timestamp - (progress / config.simulationSpeed) * 1000
-      }
-    }
-
-    // Restore all balls to initial state (shared by step-back and seek)
+    // Restore all balls to initial state
     function restoreInitialState() {
       for (const [id, snap] of initialBallStates!) {
         const ball = state[id]
@@ -425,119 +411,94 @@ function initScene() {
       }
     }
 
-    // Replay events from scratch and update frozen progress
-    function replayAndFreeze(events: ReplayData[]) {
+    // Replay a list of events from scratch (after restoreInitialState)
+    function replayEvents(events: ReplayData[]) {
       eventHistory = []
       lastConsumedEvent = null
       for (const event of events) {
         applyEventSnapshots(event)
       }
-      if (eventHistory.length > 0) {
-        playbackController.frozenProgress = eventHistory[eventHistory.length - 1].time
-      } else {
-        playbackController.frozenProgress = 0
-      }
-      currentProgress = playbackController.frozenProgress
     }
 
-    // Handle step-back: replay from initial state
-    if (playback.stepBack && eventHistory.length > 0 && initialBallStates) {
-      const poppedEvent = eventHistory.pop()!
+    // --- Handle seek, step actions, or normal playback (mutually exclusive) ---
 
-      // Push current nextEvent back to front of queue
-      if (nextEvent) {
-        simulatedResults.unshift(nextEvent)
-      }
-      nextEvent = poppedEvent
-
-      restoreInitialState()
-      const eventsToReplay = [...eventHistory]
-      replayAndFreeze(eventsToReplay)
-      progress = currentProgress
-    }
-
-    // Handle seek: replay from initial state to target time
     if (seekTarget !== null && initialBallStates) {
+      // Seek: restore initial state, replay events up to target, set time to target
       const target = seekTarget
       seekTarget = null
 
-      // Collect all available events in order: history + nextEvent + simulatedResults
       const allEvents: ReplayData[] = [...eventHistory]
       if (nextEvent) allEvents.push(nextEvent)
       allEvents.push(...simulatedResults)
 
-      // Split at target time
       const eventsToApply = allEvents.filter((e) => e.time <= target)
       const eventsRemaining = allEvents.filter((e) => e.time > target)
 
-      // Restore and replay
       restoreInitialState()
       nextEvent = eventsRemaining.shift()
       simulatedResults = eventsRemaining
-      replayAndFreeze(eventsToApply)
-
-      // Set progress to the actual seek target so balls are interpolated
-      // to the exact time, not snapped to the last event boundary
-      playbackController.frozenProgress = target
+      replayEvents(eventsToApply)
       currentProgress = target
-      progress = target
-
-      // When seeking during playback, adjust start so realProgress matches target
-      if (!playbackController.paused) {
-        start = timestamp - (target / config.simulationSpeed) * 1000
-      }
-    }
-
-    if (nextEvent) {
-      const lastEvent = simulatedResults[simulatedResults.length - 1]
-      if (!simulationDone && !fetchingMore && lastEvent && lastEvent.time - progress <= PRECALC) {
-        fetchingMore = true
-        worker!.postMessage({
-          type: RequestMessageType.REQUEST_SIMULATION_DATA,
-          payload: {
-            time: PRECALC,
-          },
-        })
-      }
-
-      if (playback.shouldProcessEvents) {
-        if (playback.consumeUntilBallId) {
-          // Step-to-ball-event mode: consume events until one involves the target ball
-          const targetBallId = playback.consumeUntilBallId
+    } else {
+      const action = playbackController.consumeAction()
+      if (action) {
+        // Step actions: process exactly one action, then render
+        if (action.type === 'step') {
+          if (nextEvent) {
+            applyEventSnapshots(nextEvent)
+            currentProgress = nextEvent.time
+            nextEvent = simulatedResults.shift()
+          }
+        } else if (action.type === 'stepBack') {
+          if (eventHistory.length > 0 && initialBallStates) {
+            const popped = eventHistory.pop()!
+            if (nextEvent) simulatedResults.unshift(nextEvent)
+            nextEvent = popped
+            restoreInitialState()
+            replayEvents([...eventHistory])
+            currentProgress = eventHistory.length > 0 ? eventHistory[eventHistory.length - 1].time : 0
+          }
+        } else if (action.type === 'stepToBall') {
+          const targetBallId = action.ballId
           let found = false
           while (nextEvent && !found) {
             const involvesBall = nextEvent.snapshots.some((s) => s.id === targetBallId)
             applyEventSnapshots(nextEvent)
             if (involvesBall) {
-              playbackController.frozenProgress = nextEvent.time
               currentProgress = nextEvent.time
               found = true
             }
             nextEvent = simulatedResults.shift()
           }
-          if (!found) {
-            // No more events for this ball — stay at last consumed event time
-            if (eventHistory.length > 0) {
-              playbackController.frozenProgress = eventHistory[eventHistory.length - 1].time
-              currentProgress = playbackController.frozenProgress
-            }
+          if (!found && eventHistory.length > 0) {
+            currentProgress = eventHistory[eventHistory.length - 1].time
           }
-          progress = currentProgress
-        } else if (playback.consumeOneEvent) {
-          // Step mode: process exactly one event
-          if (nextEvent && progress >= nextEvent.time) {
-            applyEventSnapshots(nextEvent)
-            nextEvent = simulatedResults.shift()
-          }
-        } else {
-          // Normal mode: process all due events
-          while (nextEvent && progress >= nextEvent.time) {
-            applyEventSnapshots(nextEvent)
-            nextEvent = simulatedResults.shift()
-          }
+        }
+      } else {
+        // Normal playback: advance time and consume events
+        if (!playbackController.paused) {
+          currentProgress += (deltaMs / 1000) * config.simulationSpeed
+        }
+        while (nextEvent && currentProgress >= nextEvent.time) {
+          applyEventSnapshots(nextEvent)
+          nextEvent = simulatedResults.shift()
         }
       }
     }
+
+    // Fetch more simulation data if buffer is running low
+    if (nextEvent) {
+      const lastEvent = simulatedResults[simulatedResults.length - 1]
+      if (!simulationDone && !fetchingMore && lastEvent && lastEvent.time - currentProgress <= PRECALC) {
+        fetchingMore = true
+        worker!.postMessage({
+          type: RequestMessageType.REQUEST_SIMULATION_DATA,
+          payload: { time: PRECALC },
+        })
+      }
+    }
+
+    const progress = currentProgress
 
     // 2D canvas rendering
     const ctx = canvas2D.getContext('2d')!
