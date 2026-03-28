@@ -96,20 +96,18 @@ export default class Ball {
    * Returns a 2D position for backward compatibility with renderers.
    */
   positionAtTime(time: number): Vector2D {
-    const dt = Math.min(Math.max(0, time - this.time), this.trajectory.maxDt)
+    const dt = time - this.time
     const traj = this.trajectory
     return [traj.a[0] * dt * dt + traj.b[0] * dt + traj.c[0], traj.a[1] * dt * dt + traj.b[1] * dt + traj.c[1]]
   }
 
-  /** Compute 3D position at an absolute time, clamped to trajectory validity */
   position3DAtTime(time: number): Vector3D {
-    const dt = Math.min(Math.max(0, time - this.time), this.trajectory.maxDt)
+    const dt = time - this.time
     return evaluateTrajectory(this.trajectory, dt)
   }
 
-  /** Compute 3D velocity at an absolute time, clamped to trajectory validity */
   velocityAtTime(time: number): Vector3D {
-    const dt = Math.min(Math.max(0, time - this.time), this.trajectory.maxDt)
+    const dt = time - this.time
     return evaluateTrajectoryVelocity(this.trajectory, dt)
   }
 

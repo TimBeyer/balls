@@ -65,7 +65,6 @@ function snapshotBall(ball: Ball): CircleSnapshot {
     radius: ball.radius,
     time: ball.time,
     trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
-    trajectoryMaxDt: ball.trajectory.maxDt,
   }
 }
 

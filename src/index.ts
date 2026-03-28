@@ -62,7 +62,6 @@ interface BallStateSnapshot {
   angularVelocity: Vector3D
   motionState: MotionState
   trajectoryA: [number, number]
-  trajectoryMaxDt: number
 }
 let initialBallStates: Map<string, BallStateSnapshot> | null = null
 let lastConsumedEvent: EventEntry | null = null
@@ -203,9 +202,6 @@ function startSimulation() {
               ball.trajectory.a[0] = snapshot.trajectoryA[0]
               ball.trajectory.a[1] = snapshot.trajectoryA[1]
             }
-            if (snapshot.trajectoryMaxDt !== undefined) {
-              ball.trajectory.maxDt = snapshot.trajectoryMaxDt
-            }
             if (snapshot.motionState) {
               ball.motionState = snapshot.motionState
             }
@@ -229,7 +225,6 @@ function startSimulation() {
             angularVelocity: [...ball.angularVelocity],
             motionState: ball.motionState,
             trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
-            trajectoryMaxDt: ball.trajectory.maxDt,
           })
         }
 
@@ -362,7 +357,6 @@ function initScene() {
       circle.trajectory.b[1] = snapshot.velocity[1]
       circle.trajectory.c[0] = snapshot.position[0]
       circle.trajectory.c[1] = snapshot.position[1]
-      circle.trajectory.maxDt = snapshot.trajectoryMaxDt
     }
 
     // Build deltas with after state
@@ -428,7 +422,6 @@ function initScene() {
         ball.trajectory.b[1] = snap.velocity[1]
         ball.trajectory.c[0] = snap.position[0]
         ball.trajectory.c[1] = snap.position[1]
-        ball.trajectory.maxDt = snap.trajectoryMaxDt
       }
     }
 

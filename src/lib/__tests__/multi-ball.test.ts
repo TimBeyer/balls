@@ -168,7 +168,7 @@ describe('overlap diagnosis: inter-event trajectory sampling', () => {
           a: [snap.trajectoryA[0], snap.trajectoryA[1], 0],
           b: [snap.velocity[0], snap.velocity[1], 0],
           c: [snap.position[0], snap.position[1], 0],
-          maxDt: snap.trajectoryMaxDt,
+          maxDt: Infinity,
         },
         time: snap.time,
         radius: snap.radius,

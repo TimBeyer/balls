@@ -19,8 +19,6 @@ export interface CircleSnapshot {
   time: number
   /** Quadratic acceleration coefficients for interpolation between events */
   trajectoryA: Vector2D
-  /** Trajectory validity horizon for correct interpolation during replay */
-  trajectoryMaxDt: number
 }
 
 export interface ReplayData {
@@ -53,7 +51,6 @@ function snapshotBall(ball: Ball): CircleSnapshot {
     radius: ball.radius,
     time: ball.time,
     trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
-    trajectoryMaxDt: ball.trajectory.maxDt,
   }
 }
 
