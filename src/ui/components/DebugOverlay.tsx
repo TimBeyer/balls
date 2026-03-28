@@ -6,6 +6,7 @@ import { ScenarioPanel } from './ScenarioPanel'
 import { DebugVisualizationPanel } from './DebugVisualizationPanel'
 import { OverlayTogglesPanel } from './OverlayTogglesPanel'
 import { SimulationStatsPanel } from './SimulationStatsPanel'
+import { PhysicsPanel } from './PhysicsPanel'
 import { BallInspectorPanel } from './BallInspectorPanel'
 import { EventDetailPanel } from './EventDetailPanel'
 import { EventLog } from './EventLog'
@@ -18,6 +19,7 @@ export function DebugOverlay({ bridge }: { bridge: SimulationBridge }) {
       <TransportBar bridge={bridge} />
       <Sidebar>
         <ScenarioPanel bridge={bridge} />
+        <PhysicsPanel bridge={bridge} />
         <DebugVisualizationPanel bridge={bridge} />
         <OverlayTogglesPanel bridge={bridge} />
         <SimulationStatsPanel bridge={bridge} />

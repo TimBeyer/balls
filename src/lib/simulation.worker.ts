@@ -6,10 +6,25 @@ import Ball from './ball'
 import { defaultPhysicsConfig, zeroFrictionConfig, PhysicsConfig } from './physics-config'
 import { createPoolPhysicsProfile, createSimple2DProfile } from './physics/physics-profile'
 import type { PhysicsProfile } from './physics/physics-profile'
-import type { PhysicsProfileName } from './config'
+import type { PhysicsProfileName, PhysicsOverrides } from './config'
 import type { Scenario, BallSpec } from './scenarios'
 
 declare const self: DedicatedWorkerGlobalScope
+
+function applyPhysicsOverrides(base: PhysicsConfig, overrides?: PhysicsOverrides): PhysicsConfig {
+  if (!overrides || Object.keys(overrides).length === 0) return base
+  const params = { ...base.defaultBallParams }
+  if (overrides.muSliding !== undefined) params.muSliding = overrides.muSliding
+  if (overrides.muRolling !== undefined) params.muRolling = overrides.muRolling
+  if (overrides.muSpinning !== undefined) params.muSpinning = overrides.muSpinning
+  if (overrides.eBallBall !== undefined) params.eBallBall = overrides.eBallBall
+  if (overrides.eRestitution !== undefined) params.eRestitution = overrides.eRestitution
+  return {
+    ...base,
+    gravity: overrides.gravity ?? base.gravity,
+    defaultBallParams: params,
+  }
+}
 
 function createProfileByName(name: PhysicsProfileName): PhysicsProfile {
   switch (name) {
@@ -75,6 +90,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       TABLE_WIDTH = request.payload.tableWidth
       NUM_BALLS = request.payload.numBalls
       profile = createProfileByName(request.payload.physicsProfile)
+      physicsConfig = applyPhysicsOverrides(defaultPhysicsConfig, request.payload.physicsOverrides)
 
       console.time('initCircles')
       circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random, physicsConfig, profile)

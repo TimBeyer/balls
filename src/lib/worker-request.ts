@@ -4,7 +4,7 @@ export enum RequestMessageType {
   'LOAD_SCENARIO',
 }
 
-import type { PhysicsProfileName } from './config'
+import type { PhysicsProfileName, PhysicsOverrides } from './config'
 import type { Scenario } from './scenarios'
 
 export interface InitializationRequestPayload {
@@ -12,6 +12,7 @@ export interface InitializationRequestPayload {
   tableWidth: number
   tableHeight: number
   physicsProfile: PhysicsProfileName
+  physicsOverrides?: PhysicsOverrides
 }
 
 export interface SimulationRequestPayload {

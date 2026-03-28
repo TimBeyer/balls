@@ -78,7 +78,7 @@ export function Slider({
     <label className="flex flex-col gap-1 py-1">
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-300">{label}</span>
-        <span className="font-mono text-xs text-gray-500">{value}</span>
+        <span className="font-mono text-xs text-gray-500">{Number.isInteger(step) && step >= 1 ? value : value.toFixed(String(step).split('.')[1]?.length ?? 2)}</span>
       </div>
       <input
         type="range"

@@ -9,7 +9,7 @@ import CollisionRenderer from './lib/renderers/collision-renderer'
 import CollisionPreviewRenderer from './lib/renderers/collision-preview-renderer'
 import FutureTrailRenderer from './lib/renderers/future-trail-renderer'
 import * as THREE from 'three'
-import SimulationScene from './lib/scene/simulation-scene'
+import SimulationScene, { type CameraState } from './lib/scene/simulation-scene'
 import Stats from 'stats.js'
 import { WorkerInitializationRequest, WorkerScenarioRequest, RequestMessageType } from './lib/worker-request'
 import { WorkerResponse, isWorkerInitializationResponse, isWorkerSimulationResponse } from './lib/worker-response'
@@ -66,6 +66,7 @@ interface BallStateSnapshot {
 let initialBallStates: Map<string, BallStateSnapshot> | null = null
 let lastConsumedEvent: EventEntry | null = null
 let seekTarget: number | null = null
+let savedCameraState: CameraState | null = null
 
 // --- Simulation Bridge (connects animation loop <-> React UI) ---
 const bridge = createSimulationBridge(config, {
@@ -98,6 +99,11 @@ function createCanvas(config: SimulationConfig) {
 let canvas2D = createCanvas(config)
 
 function startSimulation() {
+  // Save camera state before teardown
+  if (simulationScene) {
+    savedCameraState = simulationScene.getCameraState()
+  }
+
   // Clean up previous simulation
   if (animationFrameId !== null) {
     cancelAnimationFrame(animationFrameId)
@@ -160,6 +166,7 @@ function startSimulation() {
         tableHeight: config.tableHeight,
         tableWidth: config.tableWidth,
         physicsProfile: config.physicsProfile,
+        physicsOverrides: config.physicsOverrides,
       },
     }
     worker.postMessage(initMessage)
@@ -246,6 +253,9 @@ function initScene() {
 
   const scene = new SimulationScene(canvas2D, replayCircles, config, renderer.domElement)
   simulationScene = scene
+  if (savedCameraState) {
+    scene.restoreCamera(savedCameraState)
+  }
   renderer.render(scene.scene, scene.camera)
 
   const circleRenderer = new CircleRenderer(canvas2D)
