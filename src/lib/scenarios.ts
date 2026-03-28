@@ -214,10 +214,10 @@ export const cushionScenarios: Scenario[] = [
   },
   {
     name: 'cushion-with-backspin',
-    description: 'Ball hitting cushion with backspin — may reverse parallel component',
+    description: 'Ball hitting cushion with backspin — should bounce back with reduced speed',
     table: POOL_TABLE,
     balls: [
-      { id: 'ball', x: POOL_TABLE.width - BALL_R - 50, y: 635, vx: 1000, vy: 0, spin: [0, -1000 / BALL_R, 0] },
+      { id: 'ball', x: POOL_TABLE.width - BALL_R - 500, y: 635, vx: 2000, vy: 0, spin: [0, -2000 / BALL_R, 0] },
     ],
     physics: 'pool',
     duration: 5,
