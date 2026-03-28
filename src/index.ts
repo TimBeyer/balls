@@ -475,13 +475,16 @@ function initScene() {
       nextEvent = eventsRemaining.shift()
       simulatedResults = eventsRemaining
       replayAndFreeze(eventsToApply)
-      progress = currentProgress
+
+      // Set progress to the actual seek target so balls are interpolated
+      // to the exact time, not snapped to the last event boundary
+      playbackController.frozenProgress = target
+      currentProgress = target
+      progress = target
 
       // When seeking during playback, adjust start so realProgress matches target
       if (!playbackController.paused) {
         start = timestamp - (target / config.simulationSpeed) * 1000
-        currentProgress = target
-        progress = target
       }
     }
 
