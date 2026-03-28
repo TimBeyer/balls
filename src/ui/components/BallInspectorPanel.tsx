@@ -47,6 +47,20 @@ export function BallInspectorPanel({ bridge }: { bridge: SimulationBridge }) {
         </button>
       </div>
 
+      {/* Step to next ball event */}
+      {snap.paused && (
+        <button
+          onClick={() => bridge.callbacks.onStepToNextBallEvent()}
+          className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-700/80 px-2 py-1.5 text-[11px] font-medium text-white transition hover:bg-blue-600 active:bg-blue-800"
+          title="Step to next event for this ball (Shift+→)"
+        >
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 4l10 8-10 8V4zm10 0h3v16h-3V4z" />
+          </svg>
+          Next Ball Event
+        </button>
+      )}
+
       {/* ID */}
       <div className="mb-2 rounded bg-gray-800 px-2 py-1 font-mono text-[11px] text-gray-400">{d.id.substring(0, 12)}</div>
 

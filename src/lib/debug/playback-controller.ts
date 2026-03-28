@@ -4,6 +4,8 @@ export interface PlaybackResult {
   progress: number
   shouldProcessEvents: boolean
   consumeOneEvent: boolean
+  /** When set, consume events until one involves this ball ID */
+  consumeUntilBallId: string | null
   stepBack: boolean
 }
 
@@ -12,6 +14,7 @@ export class PlaybackController {
   private _frozenProgress = 0
   private _stepRequested = false
   private _stepBackRequested = false
+  private _stepToBallEventId: string | null = null
 
   get paused(): boolean {
     return this._paused
@@ -30,6 +33,7 @@ export class PlaybackController {
     this._frozenProgress = 0
     this._stepRequested = false
     this._stepBackRequested = false
+    this._stepToBallEventId = null
   }
 
   togglePause(currentProgress: number): void {
@@ -51,24 +55,39 @@ export class PlaybackController {
     }
   }
 
+  requestStepToBallEvent(ballId: string): void {
+    if (this._paused) {
+      this._stepToBallEventId = ballId
+    }
+  }
+
   resolveProgress(realProgress: number, nextEvent: ReplayData | undefined): PlaybackResult {
     if (!this._paused) {
-      return { progress: realProgress, shouldProcessEvents: true, consumeOneEvent: false, stepBack: false }
+      return { progress: realProgress, shouldProcessEvents: true, consumeOneEvent: false, consumeUntilBallId: null, stepBack: false }
     }
 
     if (this._stepBackRequested) {
       this._stepBackRequested = false
-      return { progress: this._frozenProgress, shouldProcessEvents: false, consumeOneEvent: false, stepBack: true }
+      return { progress: this._frozenProgress, shouldProcessEvents: false, consumeOneEvent: false, consumeUntilBallId: null, stepBack: true }
+    }
+
+    if (this._stepToBallEventId) {
+      const ballId = this._stepToBallEventId
+      this._stepToBallEventId = null
+      if (nextEvent) {
+        // Signal the animation loop to consume events until one involves this ball
+        return { progress: Infinity, shouldProcessEvents: true, consumeOneEvent: false, consumeUntilBallId: ballId, stepBack: false }
+      }
     }
 
     if (this._stepRequested) {
       this._stepRequested = false
       if (nextEvent) {
         this._frozenProgress = nextEvent.time
-        return { progress: this._frozenProgress, shouldProcessEvents: true, consumeOneEvent: true, stepBack: false }
+        return { progress: this._frozenProgress, shouldProcessEvents: true, consumeOneEvent: true, consumeUntilBallId: null, stepBack: false }
       }
     }
 
-    return { progress: this._frozenProgress, shouldProcessEvents: false, consumeOneEvent: false, stepBack: false }
+    return { progress: this._frozenProgress, shouldProcessEvents: false, consumeOneEvent: false, consumeUntilBallId: null, stepBack: false }
   }
 }

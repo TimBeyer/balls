@@ -61,6 +61,7 @@ export interface SimulationCallbacks {
   onPauseToggle: () => void
   onStepForward: () => void
   onStepBack: () => void
+  onStepToNextBallEvent: () => void
   onSeek: (time: number) => void
   onLiveUpdate: () => void
   clearBallSelection: () => void

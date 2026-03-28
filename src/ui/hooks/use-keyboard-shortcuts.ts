@@ -15,7 +15,11 @@ export function useKeyboardShortcuts(bridge: SimulationBridge) {
           break
         case 'ArrowRight':
           e.preventDefault()
-          bridge.callbacks.onStepForward()
+          if (e.shiftKey) {
+            bridge.callbacks.onStepToNextBallEvent()
+          } else {
+            bridge.callbacks.onStepForward()
+          }
           break
         case 'ArrowLeft':
           e.preventDefault()

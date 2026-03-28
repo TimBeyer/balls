@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { SimulationBridge, BallEventSnapshot, EventBallDelta } from '../../lib/debug/simulation-bridge'
 import { useSimulation } from '../hooks/use-simulation'
 
@@ -113,30 +114,44 @@ function BallDeltaSection({ delta }: { delta: EventBallDelta }) {
 
 export function EventDetailPanel({ bridge }: { bridge: SimulationBridge }) {
   const snap = useSimulation(bridge)
+  const [collapsed, setCollapsed] = useState(false)
 
   if (!snap.paused || !snap.currentEvent || !snap.currentEvent.deltas) return null
 
   const event = snap.currentEvent
 
   return (
-    <div className="pointer-events-auto fixed bottom-24 left-2 right-2 mx-auto max-w-lg overflow-y-auto rounded-xl bg-gray-900/95 p-3 shadow-lg backdrop-blur-sm sm:bottom-20 sm:left-1/2 sm:right-auto sm:w-[480px] sm:-translate-x-1/2" style={{ maxHeight: 'calc(100vh - 10rem)' }}>
-      {/* Header */}
-      <div className="mb-2 flex items-center gap-3">
+    <div className="pointer-events-auto fixed bottom-24 left-2 right-2 z-10 mx-auto max-w-lg rounded-xl bg-gray-900/95 shadow-lg backdrop-blur-sm sm:bottom-20 sm:left-1/2 sm:right-auto sm:z-auto sm:w-[480px] sm:-translate-x-1/2">
+      {/* Header — always visible, acts as toggle on mobile */}
+      <div
+        className="flex cursor-pointer items-center gap-3 p-3 pb-0 sm:cursor-default"
+        onClick={() => setCollapsed((c) => !c)}
+      >
         <span className={`text-xs font-semibold ${EVENT_COLORS[event.type] ?? 'text-gray-400'}`}>
           {EVENT_LABELS[event.type] ?? event.type}
         </span>
         <span className="font-mono text-[11px] text-gray-500">t={event.time.toFixed(5)}s</span>
         {event.cushionType && <span className="rounded bg-blue-900/50 px-1.5 py-0.5 text-[10px] text-blue-300">{event.cushionType}</span>}
+        {/* Collapse chevron — mobile only */}
+        <button className="ml-auto text-gray-500 sm:hidden" aria-label={collapsed ? 'Expand' : 'Collapse'}>
+          <svg className={`h-4 w-4 transition-transform ${collapsed ? '' : 'rotate-180'}`} viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 10l5 5 5-5z" />
+          </svg>
+        </button>
       </div>
 
-      {/* Ball deltas */}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        {event.deltas.map((delta) => (
-          <div key={delta.id} className="flex-1">
-            <BallDeltaSection delta={delta} />
+      {/* Ball deltas — collapsible on mobile */}
+      {!collapsed && (
+        <div className="max-h-48 overflow-y-auto p-3 pt-2 sm:max-h-[calc(100vh-10rem)]">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {event.deltas.map((delta) => (
+              <div key={delta.id} className="flex-1">
+                <BallDeltaSection delta={delta} />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

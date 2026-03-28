@@ -73,6 +73,10 @@ const bridge = createSimulationBridge(config, {
   onPauseToggle: () => playbackController.togglePause(currentProgress),
   onStepForward: () => playbackController.requestStep(),
   onStepBack: () => playbackController.requestStepBack(),
+  onStepToNextBallEvent: () => {
+    const ballId = bridge.getSnapshot().selectedBallId
+    if (ballId) playbackController.requestStepToBallEvent(ballId)
+  },
   onSeek: (time: number) => {
     seekTarget = time
   },
@@ -481,7 +485,28 @@ function initScene() {
       }
 
       if (playback.shouldProcessEvents) {
-        if (playback.consumeOneEvent) {
+        if (playback.consumeUntilBallId) {
+          // Step-to-ball-event mode: consume events until one involves the target ball
+          const targetBallId = playback.consumeUntilBallId
+          let found = false
+          while (nextEvent && !found) {
+            const involvesBall = nextEvent.snapshots.some((s) => s.id === targetBallId)
+            applyEventSnapshots(nextEvent)
+            if (involvesBall) {
+              playbackController.frozenProgress = nextEvent.time
+              currentProgress = nextEvent.time
+              found = true
+            }
+            nextEvent = simulatedResults.shift()
+          }
+          if (!found) {
+            // No more events for this ball — stay at last consumed event time
+            if (eventHistory.length > 0) {
+              playbackController.frozenProgress = eventHistory[eventHistory.length - 1].time
+              currentProgress = playbackController.frozenProgress
+            }
+          }
+        } else if (playback.consumeOneEvent) {
           // Step mode: process exactly one event
           if (nextEvent && progress >= nextEvent.time) {
             applyEventSnapshots(nextEvent)
