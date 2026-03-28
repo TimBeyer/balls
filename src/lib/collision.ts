@@ -249,8 +249,11 @@ export class CollisionFinder {
    * After a circle's velocity/state changes, predict its new events.
    * Old events for this circle are not removed — they will be lazily skipped
    * via epoch mismatch in pop().
+   *
+   * @param excludeIds - optional set of ball IDs to skip during ball-ball detection
+   *   (used to suppress Zeno pairs that have exceeded their collision budget)
    */
-  recompute(circleId: string) {
+  recompute(circleId: string, excludeIds?: Set<string>) {
     const referenceCircle = this.circlesById.get(circleId)!
 
     // Cushion collision (via detector from profile)
@@ -268,6 +271,7 @@ export class CollisionFinder {
     // Ball-ball collisions with neighbors (via detector from profile)
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
     for (const neighbor of neighbors) {
+      if (excludeIds && excludeIds.has(neighbor.id)) continue
       const time = this.profile.ballBallDetector.detect(referenceCircle, neighbor)
       if (time) {
         const collision: Collision = {

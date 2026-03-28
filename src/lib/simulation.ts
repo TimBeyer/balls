@@ -157,6 +157,56 @@ export function simulate(
   // Check if all balls are stationary
   const allStationary = () => circles.every((b) => b.motionState === MotionState.Stationary)
 
+  // Pair collision rate tracker: detects Zeno cascades where external forces
+  // keep pushing the same pair back together. Three tiers:
+  //   1-BUDGET: normal physics (progressive restitution)
+  //   BUDGET+1 to 2*BUDGET: force fully inelastic
+  //   >2*BUDGET: suppress pair (skip detection in recompute until window resets)
+  const pairCollisionCounts = new Map<string, { count: number; windowStart: number }>()
+  const PAIR_BUDGET = 6
+  const PAIR_WINDOW = 0.2 // seconds
+  // Suppressed pairs: these pairs are excluded from ball-ball detection during
+  // recompute() until the time window expires. Stored as "id1\0id2" where id1 < id2.
+  const suppressedPairs = new Set<string>()
+
+  function getPairKey(a: string, b: string): string {
+    return a < b ? a + '\0' + b : b + '\0' + a
+  }
+
+  /** Returns 0 = normal, 1 = force inelastic, 2 = suppress pair */
+  function checkPairBudget(a: string, b: string, t: number): number {
+    const key = getPairKey(a, b)
+    const entry = pairCollisionCounts.get(key)
+    if (!entry || t - entry.windowStart > PAIR_WINDOW) {
+      // Window reset — unsuppress the pair
+      suppressedPairs.delete(key)
+      pairCollisionCounts.set(key, { count: 1, windowStart: t })
+      return 0
+    }
+    entry.count++
+    if (entry.count > PAIR_BUDGET * 2) {
+      suppressedPairs.add(key)
+      return 2
+    }
+    if (entry.count > PAIR_BUDGET) return 1
+    return 0
+  }
+
+  /** Build an exclude set for recompute: all balls suppressed with the given ball */
+  function getSuppressedNeighbors(ballId: string): Set<string> | undefined {
+    let result: Set<string> | undefined
+    for (const key of suppressedPairs) {
+      const sep = key.indexOf('\0')
+      const id1 = key.substring(0, sep)
+      const id2 = key.substring(sep + 1)
+      if (id1 === ballId || id2 === ballId) {
+        if (!result) result = new Set()
+        result.add(id1 === ballId ? id2 : id1)
+      }
+    }
+    return result
+  }
+
   while (currentTime < time && !allStationary()) {
     const event = collisionFinder.pop()
 
@@ -191,7 +241,7 @@ export function simulate(
         snapshots: [snapshotBall(ball)],
       })
 
-      collisionFinder.recompute(ball.id)
+      collisionFinder.recompute(ball.id, getSuppressedNeighbors(ball.id))
       continue
     }
 
@@ -261,7 +311,43 @@ export function simulate(
         c2.position[1] -= ny * half
       }
 
-      profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
+      // Pair rate limiting: prevent Zeno cascades from external forces
+      const pairTier = checkPairBudget(c1.id, c2.id, event.time)
+
+      if (pairTier === 2) {
+        // Way over budget — pair is now suppressed globally. Recompute events
+        // for both balls; getSuppressedNeighbors will exclude them from each
+        // other's detection. The pair re-enables when the time window expires.
+        c1.updateTrajectory(profile, physicsConfig)
+        c2.updateTrajectory(profile, physicsConfig)
+        c1.clampToBounds(tableWidth, tableHeight)
+        c2.clampToBounds(tableWidth, tableHeight)
+        c1.syncTrajectoryOrigin()
+        c2.syncTrajectoryOrigin()
+        currentTime = event.time
+
+        collisionFinder.recompute(c1.id, getSuppressedNeighbors(c1.id))
+        collisionFinder.recompute(c2.id, getSuppressedNeighbors(c2.id))
+        continue
+      }
+
+      if (pairTier === 1) {
+        // Over budget — force fully inelastic (no bounce)
+        const ddx = c1.position[0] - c2.position[0]
+        const ddy = c1.position[1] - c2.position[1]
+        const dd = Math.sqrt(ddx * ddx + ddy * ddy) || 1
+        const nnx = ddx / dd
+        const nny = ddy / dd
+        const v1n = c1.velocity[0] * nnx + c1.velocity[1] * nny
+        const v2n = c2.velocity[0] * nnx + c2.velocity[1] * nny
+        const comVn = (c1.mass * v1n + c2.mass * v2n) / (c1.mass + c2.mass)
+        c1.velocity[0] += (comVn - v1n) * nnx
+        c1.velocity[1] += (comVn - v1n) * nny
+        c2.velocity[0] += (comVn - v2n) * nnx
+        c2.velocity[1] += (comVn - v2n) * nny
+      } else {
+        profile.ballCollisionResolver.resolve(c1, c2, physicsConfig)
+      }
       c1.updateTrajectory(profile, physicsConfig)
       c2.updateTrajectory(profile, physicsConfig)
       c1.clampToBounds(tableWidth, tableHeight)
@@ -328,7 +414,7 @@ export function simulate(
       // Recompute for ALL affected balls (primary + contact chain)
       const allAffected = new Set([c1, c2, ...contactResult.affectedBalls])
       for (const ball of allAffected) {
-        collisionFinder.recompute(ball.id)
+        collisionFinder.recompute(ball.id, getSuppressedNeighbors(ball.id))
       }
 
       if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after CircleCollision at t=${currentTime}`)
@@ -356,7 +442,7 @@ export function simulate(
     replay.push(replayData)
 
     for (const circle of event.circles) {
-      collisionFinder.recompute(circle.id)
+      collisionFinder.recompute(circle.id, getSuppressedNeighbors(circle.id))
     }
   }
   return replay
