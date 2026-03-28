@@ -2,7 +2,6 @@ import Ball from './lib/ball'
 import type Vector3D from './lib/vector3d'
 import { MotionState } from './lib/motion-state'
 import { ReplayData } from './lib/simulation'
-import Renderer from './lib/renderers/renderer'
 import CircleRenderer from './lib/renderers/circle-renderer'
 import TailRenderer from './lib/renderers/tail-renderer'
 import CollisionRenderer from './lib/renderers/collision-renderer'
@@ -439,6 +438,7 @@ function initScene() {
       simulatedResults = eventsRemaining
       replayEvents(eventsToApply)
       currentProgress = target
+      tailRenderer.clear()
 
       // Rebase all ball trajectories to the seek target time.
       // After replay, each ball's trajectory origin is at its last event time.
@@ -537,23 +537,20 @@ function initScene() {
       config.showPhantomBalls,
     )
 
-    // Build active renderers list based on config (reuse stateful renderers)
-    const renderers: Renderer[] = []
-    if (config.showCircles) renderers.push(circleRenderer)
-    if (config.showTails) renderers.push(tailRenderer)
-    if (config.showCollisions) renderers.push(collisionRenderer)
-    if (config.showCollisionPreview) renderers.push(collisionPreviewRenderer)
-    if (config.showFutureTrails) renderers.push(futureTrailRenderer)
 
     scene.renderAtTime(progress)
-    if (nextEvent || simulatedResults.length > 0) {
-      for (const r of renderers) {
-        for (const circleId of circleIds) {
-          const circle = state[circleId]
-          if (nextEvent) {
-            r.render(circle, progress, nextEvent, simulatedResults)
-          }
-        }
+    // Always render circles; other renderers require nextEvent
+    for (const circleId of circleIds) {
+      const circle = state[circleId]
+      if (config.showCircles) {
+        circleRenderer.render(circle, progress, nextEvent)
+      }
+      if (nextEvent) {
+        if (config.showTails) tailRenderer.render(circle, progress)
+        if (config.showCollisions) collisionRenderer.render(circle, progress, nextEvent, simulatedResults)
+        if (config.showCollisionPreview) collisionPreviewRenderer.render(circle, progress, nextEvent, simulatedResults)
+        if (config.showFutureTrails)
+          futureTrailRenderer.render(circle, progress, nextEvent, simulatedResults)
       }
     }
 

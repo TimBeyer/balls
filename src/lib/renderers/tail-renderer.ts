@@ -10,6 +10,10 @@ export default class TailRenderer extends Renderer {
     this.tailLength = tailLength
   }
 
+  clear() {
+    this.eventsTail.clear()
+  }
+
   render(circle: Circle, progress: number) {
     if (!this.eventsTail.has(circle)) {
       this.eventsTail.set(circle, [])
