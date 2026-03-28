@@ -27,7 +27,9 @@ import { EventType } from '../../simulation'
 /** Approach speed (mm/s) below which e=0 (perfectly inelastic) */
 const V_LOW = 5
 
-/** Tolerance for detecting contact (mm). Balls within rSum + CONTACT_TOL are "touching". */
+/** Tolerance for detecting contact (mm). Balls within rSum + CONTACT_TOL are "touching".
+ *  Must be larger than scenario gaps (e.g. 0.1mm in Newton's cradle) so the solver
+ *  discovers the full chain and resolves it simultaneously. */
 const CONTACT_TOL = 0.001
 
 /** Maximum Gauss-Seidel iterations */

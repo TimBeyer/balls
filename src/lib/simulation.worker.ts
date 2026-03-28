@@ -3,7 +3,7 @@ import { ResponseMessageType, WorkerInitializationResponse, WorkerSimulationResp
 import { generateCircles } from './generate-circles'
 import { simulate } from './simulation'
 import Ball from './ball'
-import { defaultPhysicsConfig, PhysicsConfig } from './physics-config'
+import { defaultPhysicsConfig, zeroFrictionConfig, PhysicsConfig } from './physics-config'
 import { createPoolPhysicsProfile, createSimple2DProfile } from './physics/physics-profile'
 import type { PhysicsProfile } from './physics/physics-profile'
 import type { PhysicsProfileName } from './config'
@@ -50,7 +50,7 @@ let TABLE_WIDTH = 0
 let NUM_BALLS = 0
 let circles: Ball[] = []
 let time = 0
-const physicsConfig: PhysicsConfig = defaultPhysicsConfig
+let physicsConfig: PhysicsConfig = defaultPhysicsConfig
 let profile: PhysicsProfile = createPoolPhysicsProfile()
 
 // Respond to message from parent thread
@@ -98,11 +98,16 @@ self.addEventListener('message', (event: MessageEvent) => {
     TABLE_WIDTH = scenario.table.width
     TABLE_HEIGHT = scenario.table.height
 
-    // Determine physics profile
-    if (scenario.physics === 'simple2d') {
+    // Determine physics profile and config from scenario
+    if (scenario.physics === 'zero-friction') {
       profile = createSimple2DProfile()
+      physicsConfig = zeroFrictionConfig
+    } else if (scenario.physics === 'simple2d') {
+      profile = createSimple2DProfile()
+      physicsConfig = defaultPhysicsConfig
     } else {
       profile = createPoolPhysicsProfile()
+      physicsConfig = defaultPhysicsConfig
     }
 
     circles = createBallsFromScenario(scenario, physicsConfig, profile)

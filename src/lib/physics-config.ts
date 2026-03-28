@@ -25,6 +25,23 @@ export const defaultBallParams: BallPhysicsParams = {
   eBallBall: 0.93,
 }
 
+export const zeroFrictionBallParams: BallPhysicsParams = {
+  mass: 100,
+  radius: 37.5,
+  muSliding: 0,
+  muRolling: 0,
+  muSpinning: 0,
+  eRestitution: 1.0,
+  eBallBall: 1.0,
+}
+
+export const zeroFrictionConfig: PhysicsConfig = {
+  gravity: 9810,
+  cushionHeight: 10.1,
+  eTableRestitution: 0.5,
+  defaultBallParams: zeroFrictionBallParams,
+}
+
 export const defaultPhysicsConfig: PhysicsConfig = {
   gravity: 9810, // mm/s^2
   // Cushion contact height above ball center in mm.

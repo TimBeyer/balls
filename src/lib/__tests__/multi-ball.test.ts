@@ -50,6 +50,11 @@ describe('multi-ball scenarios', () => {
     const lastBall = getSnapshotById(lastBallHit!, 'cradle-4')!
     expect(computeSpeed(lastBall)).toBeGreaterThan(100)
 
+    // Striker should have stopped after hitting the chain
+    const strikerHit = collisions.find((e) => getSnapshotById(e, 'striker'))
+    const striker = getSnapshotById(strikerHit!, 'striker')!
+    expect(computeSpeed(striker)).toBeLessThan(10)
+
     assertNoOverlaps(replay)
   })
 

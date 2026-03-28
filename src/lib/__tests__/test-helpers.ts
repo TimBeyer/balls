@@ -1,7 +1,14 @@
 import Ball from '../ball'
 import type Vector2D from '../vector2d'
 import type Vector3D from '../vector3d'
-import { BallPhysicsParams, PhysicsConfig, defaultPhysicsConfig, defaultBallParams } from '../physics-config'
+import {
+  BallPhysicsParams,
+  PhysicsConfig,
+  defaultPhysicsConfig,
+  defaultBallParams,
+  zeroFrictionBallParams,
+  zeroFrictionConfig as zeroFrictionConfigImported,
+} from '../physics-config'
 import { simulate, ReplayData, EventType, CircleSnapshot } from '../simulation'
 import { createPoolPhysicsProfile, createSimple2DProfile } from '../physics/physics-profile'
 import type { PhysicsProfile } from '../physics/physics-profile'
@@ -9,24 +16,9 @@ import { MotionState } from '../motion-state'
 import type { Scenario, BallSpec } from '../scenarios'
 import { generateCircles } from '../generate-circles'
 
-// ─── Zero-friction config (ideal physics for simple collision tests) ─────────
-
-export const zeroFrictionParams: BallPhysicsParams = {
-  mass: 100,
-  radius: 37.5,
-  muSliding: 0,
-  muRolling: 0,
-  muSpinning: 0,
-  eRestitution: 1.0,
-  eBallBall: 1.0,
-}
-
-export const zeroFrictionConfig: PhysicsConfig = {
-  gravity: 9810,
-  cushionHeight: 10.1,
-  eTableRestitution: 0.5,
-  defaultBallParams: zeroFrictionParams,
-}
+// Re-export zero-friction config from production code
+export const zeroFrictionParams: BallPhysicsParams = zeroFrictionBallParams
+export const zeroFrictionConfig: PhysicsConfig = zeroFrictionConfigImported
 
 // ─── Ball factories ──────────────────────────────────────────────────────────
 

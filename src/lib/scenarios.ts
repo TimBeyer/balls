@@ -63,7 +63,7 @@ function lineOfBalls(
   count: number,
   idPrefix = 'line',
 ): BallSpec[] {
-  const d = BALL_D + 0.1 // 0.1mm gap — close enough for Newton's cradle, avoids overlap guard
+  const d = BALL_D + 0.0005 // 0.5μm gap — within CONTACT_TOL so cluster solver discovers the full chain
   return Array.from({ length: count }, (_, i) => ({
     id: `${idPrefix}-${i + 1}`,
     x: startX + i * d,
