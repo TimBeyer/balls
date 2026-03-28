@@ -12,6 +12,7 @@ export class StationaryMotion implements MotionModel {
       a: vec3Zero(),
       b: vec3Zero(),
       c: [ball.position[0], ball.position[1], ball.position[2]],
+      maxDt: Infinity,
     }
   }
 

@@ -11,7 +11,7 @@ export class RollingMotion implements MotionModel {
   computeTrajectory(ball: Ball, config: PhysicsConfig): TrajectoryCoeffs {
     const speed = vec3Magnitude2D(ball.velocity)
     if (speed < 1e-12) {
-      return { a: vec3Zero(), b: vec3Zero(), c: [ball.position[0], ball.position[1], ball.position[2]] }
+      return { a: vec3Zero(), b: vec3Zero(), c: [ball.position[0], ball.position[1], ball.position[2]], maxDt: Infinity }
     }
 
     const params = ball.physicsParams
@@ -19,10 +19,14 @@ export class RollingMotion implements MotionModel {
     const sinPhi = ball.velocity[1] / speed
     const halfMuRG = 0.5 * params.muRolling * config.gravity
 
+    // Rolling stops when speed reaches zero: speed - muR*g*t = 0
+    const maxDt = speed / (params.muRolling * config.gravity)
+
     return {
       a: [-halfMuRG * cosPhi, -halfMuRG * sinPhi, 0],
       b: [ball.velocity[0], ball.velocity[1], ball.velocity[2]],
       c: [ball.position[0], ball.position[1], ball.position[2]],
+      maxDt,
     }
   }
 

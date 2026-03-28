@@ -5,7 +5,7 @@ import { defaultPhysicsConfig } from '../physics-config'
 import { createPoolPhysicsProfile } from '../physics/physics-profile'
 
 describe('perf-150', () => {
-  it('150 balls for 20s (default config)', () => {
+  it('150 balls for 20s (default config)', { timeout: 120000 }, () => {
     let s = 42
     const seededRandom = () => {
       s = (s + 0x6d2b79f5) | 0

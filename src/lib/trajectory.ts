@@ -20,6 +20,10 @@ export interface TrajectoryCoeffs {
   b: Vector3D
   /** Constant term (initial position) */
   c: Vector3D
+  /** Maximum time offset for which this trajectory is physically valid.
+   *  Beyond this, the polynomial extrapolates into unphysical territory
+   *  (e.g., velocity reversal after friction brings the ball to rest). */
+  maxDt: number
 }
 
 export interface AngularVelCoeffs {

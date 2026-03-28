@@ -14,16 +14,18 @@ import type { MotionModel, StateTransition } from './motion-model'
 function rollingTrajectoryFallback(ball: Ball, config: PhysicsConfig): TrajectoryCoeffs {
   const speed = vec3Magnitude2D(ball.velocity)
   if (speed < 1e-12) {
-    return { a: vec3Zero(), b: vec3Zero(), c: [ball.position[0], ball.position[1], ball.position[2]] }
+    return { a: vec3Zero(), b: vec3Zero(), c: [ball.position[0], ball.position[1], ball.position[2]], maxDt: Infinity }
   }
   const params = ball.physicsParams
   const cosPhi = ball.velocity[0] / speed
   const sinPhi = ball.velocity[1] / speed
   const halfMuRG = 0.5 * params.muRolling * config.gravity
+  const maxDt = speed / (params.muRolling * config.gravity)
   return {
     a: [-halfMuRG * cosPhi, -halfMuRG * sinPhi, 0],
     b: [ball.velocity[0], ball.velocity[1], ball.velocity[2]],
     c: [ball.position[0], ball.position[1], ball.position[2]],
+    maxDt,
   }
 }
 
@@ -65,10 +67,14 @@ export class SlidingMotion implements MotionModel {
     const uHatY = relVel[1] / relSpeed
     const halfMuSG = 0.5 * params.muSliding * config.gravity
 
+    // Trajectory is only valid until the sliding-to-rolling transition
+    const transitionDt = (2 / 7) * (relSpeed / (params.muSliding * config.gravity))
+
     return {
       a: [-halfMuSG * uHatX, -halfMuSG * uHatY, 0],
       b: [ball.velocity[0], ball.velocity[1], ball.velocity[2]],
       c: [ball.position[0], ball.position[1], ball.position[2]],
+      maxDt: transitionDt,
     }
   }
 

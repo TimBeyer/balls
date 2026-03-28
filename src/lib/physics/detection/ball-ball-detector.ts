@@ -1,15 +1,18 @@
 /**
- * Quartic polynomial ball-ball collision detector.
+ * Ball-ball collision detector using cubic-minimum + bisection.
  *
- * With quadratic trajectories r_i(t) = a_i*t^2 + b_i*t + c_i,
- * the distance vector d(t) = r_j(t) - r_i(t) = A*t^2 + B*t + C.
- * Collision when |d(t)|^2 = (R_i + R_j)^2 yields a quartic polynomial.
+ * With quadratic trajectories r_i(t) = a_i*t² + b_i*t + c_i,
+ * the distance-squared function D(t) = |d(t)|² - rSum² is a quartic polynomial.
+ * Instead of solving D(t) = 0 algebraically (Ferrari — numerically fragile),
+ * we find critical points of D(t) by solving D'(t) = 0 (a cubic, solved stably
+ * by Cardano's method), then bracket and bisect the first zero crossing.
  *
  * Both balls' trajectories are re-referenced to a common time (the later of the two).
+ * The search is clamped to the minimum validity horizon of both trajectories.
  */
 
 import type Ball from '../../ball'
-import { smallestPositiveRoot } from '../../polynomial-solver'
+import { solveCubic } from '../../polynomial-solver'
 import type { BallBallDetector } from './collision-detector'
 
 /** Rebase trajectory coefficients to a new origin time offset by dt */
@@ -45,7 +48,7 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const rebaseA = rebaseTrajectory(circleA.trajectory, dtA)
     const rebaseB = rebaseTrajectory(circleB.trajectory, dtB)
 
-    // Difference: d(t) = B(t) - A(t)
+    // Difference: d(t) = B(t) - A(t) = A*t² + B*t + C
     const Ax = rebaseB.a0 - rebaseA.a0
     const Ay = rebaseB.a1 - rebaseA.a1
     const Az = rebaseB.a2 - rebaseA.a2
@@ -56,85 +59,115 @@ export class QuarticBallBallDetector implements BallBallDetector {
     const Cy = rebaseB.c1 - rebaseA.c1
     const Cz = rebaseB.c2 - rebaseA.c2
 
-    // Overlap guard — handle genuinely overlapping balls (> 0.5mm overlap)
-    // directly without the quartic solver.
-    // Smaller overlaps (float noise from snap-apart, up to ~0.5mm) fall through
-    // to the quartic, which correctly finds future collisions (e.g., when a
-    // decelerating ball reverses direction after a missed state transition).
-    const distSq = Cx * Cx + Cy * Cy + Cz * Cz
     const rSum = circleA.radius + circleB.radius
-    const guardDist = rSum - 0.5
-    if (distSq < guardDist * guardDist) {
-      // Genuine overlap (> 0.5mm). Check whether approaching or separating.
-      // d(|d|²)/dt at t=0 = 2*(C·B). Negative means distance is shrinking.
-      const dDistSqDt = 2 * (Cx * Bx + Cy * By + Cz * Bz)
-      if (dDistSqDt >= 0) return undefined // Separating — will self-resolve
-
-      // Approaching while overlapping — schedule near-immediate collision
-      return refTime + 1e-12
-    }
-
-    // Quartic coefficients for |d(t)|² = rSum²
-    const coeff4 = Ax * Ax + Ay * Ay + Az * Az
-    const coeff3 = 2 * (Ax * Bx + Ay * By + Az * Bz)
-    const coeff2 = Bx * Bx + By * By + Bz * Bz + 2 * (Ax * Cx + Ay * Cy + Az * Cz)
-    const coeff1 = 2 * (Bx * Cx + By * Cy + Bz * Cz)
-    const coeff0 = distSq - rSum * rSum
-
-    // When balls are at near-contact distance (coeff0 ≈ 0), the quartic has a
-    // spurious near-zero root at the current contact point. Skip it by raising
-    // the minimum root threshold so the solver finds the actual NEXT collision
-    // (e.g., a decelerating ball that reverses direction toward its neighbor).
-    const nearContact = Math.abs(coeff0) < rSum * 0.5
-    const minRootDt = nearContact ? 1e-6 : undefined
-
-    let dt = smallestPositiveRoot([coeff4, coeff3, coeff2, coeff1, coeff0], minRootDt)
-    if (dt === undefined) return undefined
-
-    // Verify the root produces a collision using the exact distance function.
-    // Ferrari's method can produce spurious roots when coefficients are ill-conditioned
-    // (common with large sliding friction accelerations near contact distance).
     const rSumSq = rSum * rSum
-    const verifyDistSq = (t: number): number => {
+
+    // D(t) = |d(t)|² - rSum²  is the signed distance function.
+    // D(t) = c4*t⁴ + c3*t³ + c2*t² + c1*t + c0
+    const c4 = Ax * Ax + Ay * Ay + Az * Az
+    const c3 = 2 * (Ax * Bx + Ay * By + Az * Bz)
+    const c2 = Bx * Bx + By * By + Bz * Bz + 2 * (Ax * Cx + Ay * Cy + Az * Cz)
+    const c1 = 2 * (Bx * Cx + By * Cy + Bz * Cz)
+    const c0 = Cx * Cx + Cy * Cy + Cz * Cz - rSumSq
+
+    // Clamp search to trajectory validity horizons
+    const maxDtA = circleA.trajectory.maxDt - dtA
+    const maxDtB = circleB.trajectory.maxDt - dtB
+    const maxValidDt = Math.min(maxDtA, maxDtB)
+    if (maxValidDt <= 0) return undefined
+
+    // Evaluate D(t) directly
+    const D = (t: number): number => {
       const t2 = t * t
-      const ex = Ax * t2 + Bx * t + Cx
-      const ey = Ay * t2 + By * t + Cy
-      const ez = Az * t2 + Bz * t + Cz
-      return ex * ex + ey * ey + ez * ez
+      return c4 * t2 * t2 + c3 * t2 * t + c2 * t2 + c1 * t + c0
     }
 
-    if (verifyDistSq(dt) > rSumSq * 1.02) {
-      // Root failed verification — Ferrari's method produced a spurious root
-      // (common when coefficients are ill-conditioned near contact distance).
-      // Use bisection on the exact distance function as a robust fallback.
-      // Scan at 5ms intervals up to 0.5s to find a bracket where distSq crosses rSumSq,
-      // then bisect to find the precise collision time.
-      const SCAN_STEP = 0.005
-      const SCAN_MAX = 0.5
-      let lo: number | undefined
-      let prevDistSq = distSq
-      for (let t = SCAN_STEP; t <= SCAN_MAX; t += SCAN_STEP) {
-        const curDistSq = verifyDistSq(t)
-        if (prevDistSq >= rSumSq && curDistSq < rSumSq) {
-          lo = t - SCAN_STEP
+    const D0 = c0 // D(0)
+
+    // Already overlapping or touching: D(0) ≤ 0 means dist ≤ rSum.
+    // Check if approaching (D'(0) < 0) — schedule immediate collision.
+    // If separating (D'(0) ≥ 0) — they'll resolve themselves, skip.
+    //
+    // Use a scaled tolerance for "approaching": when D0 is near zero
+    // (balls just touching after snap-apart), floating-point noise in
+    // positions and velocities can make c1 barely negative, causing an
+    // infinite re-collision loop. Require c1 to be meaningfully negative
+    // relative to rSumSq (which scales with ball size).
+    if (D0 <= 0) {
+      const approachTol = -1e-7 * rSumSq
+      if (c1 >= approachTol) return undefined // Separating, stationary, or noise
+      return refTime + 1e-12 // Genuinely approaching — instant collision
+    }
+
+    // D'(t) = 4*c4*t³ + 3*c3*t² + 2*c2*t + c1 (cubic)
+    // Find critical points to identify intervals where D crosses zero.
+
+    // Collect evaluation points: t=0, critical points in (0, maxValidDt), and t=maxValidDt (if finite)
+    const criticalPoints = solveCubic(4 * c4, 3 * c3, 2 * c2, c1)
+    const evalPoints: number[] = [0]
+    for (const cp of criticalPoints) {
+      if (cp > 1e-12 && (isFinite(maxValidDt) ? cp < maxValidDt : true)) {
+        evalPoints.push(cp)
+      }
+    }
+    if (isFinite(maxValidDt)) {
+      evalPoints.push(maxValidDt)
+    }
+    evalPoints.sort((a, b) => a - b)
+
+    // Find the first interval where D transitions from ≥0 to <0 (collision entry)
+    let bracketLo: number | undefined
+    let bracketHi: number | undefined
+    let prevD = D0
+    for (let i = 1; i < evalPoints.length; i++) {
+      const t = evalPoints[i]
+      const Dt = D(t)
+      if (prevD >= 0 && Dt < 0) {
+        bracketLo = evalPoints[i - 1]
+        bracketHi = t
+        break
+      }
+      prevD = Dt
+    }
+
+    if (bracketLo === undefined || bracketHi === undefined) {
+      // No sign change at evaluation points. Check midpoints between consecutive eval points
+      // — D could dip below zero between critical points if the quartic wiggles.
+      prevD = D0
+      for (let i = 1; i < evalPoints.length; i++) {
+        const t = evalPoints[i]
+        const Dt = D(t)
+        const mid = (evalPoints[i - 1] + t) / 2
+        const Dmid = D(mid)
+        if ((prevD >= 0 || Dt >= 0) && Dmid < 0) {
+          if (prevD >= 0 && Dmid < 0) {
+            bracketLo = evalPoints[i - 1]
+            bracketHi = mid
+          } else {
+            bracketLo = mid
+            bracketHi = t
+          }
           break
         }
-        prevDistSq = curDistSq
-      }
-      if (lo !== undefined) {
-        // Bisect within [lo, lo + SCAN_STEP]
-        let a = lo
-        let b = lo + SCAN_STEP
-        for (let i = 0; i < 40; i++) {
-          const mid = (a + b) / 2
-          if (verifyDistSq(mid) > rSumSq) a = mid
-          else b = mid
-        }
-        dt = (a + b) / 2
-      } else {
-        return undefined
+        prevD = Dt
       }
     }
+
+    if (bracketLo === undefined || bracketHi === undefined) {
+      return undefined
+    }
+
+    // Bisect [bracketLo, bracketHi] to find the exact zero crossing (40 iterations ≈ 12 digits)
+    let lo = bracketLo
+    let hi = bracketHi
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2
+      if (D(mid) > 0) lo = mid
+      else hi = mid
+    }
+
+    const dt = (lo + hi) / 2
+    if (dt < 1e-12) return undefined // Too close to current time
 
     return dt + refTime
   }

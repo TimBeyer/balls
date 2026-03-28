@@ -18,10 +18,13 @@ export class AirborneMotion implements MotionModel {
 
   computeTrajectory(ball: Ball, config: PhysicsConfig): TrajectoryCoeffs {
     // No friction in x/y while airborne. Gravity pulls z down.
+    // maxDt = landing time (from getTransitionTime)
+    const transition = this.getTransitionTime(ball, config)
     return {
       a: [0, 0, -config.gravity / 2],
       b: [ball.velocity[0], ball.velocity[1], ball.velocity[2]],
       c: [ball.position[0], ball.position[1], ball.position[2]],
+      maxDt: transition ? transition.dt : Infinity,
     }
   }
 

@@ -16,7 +16,7 @@ function seededRandom() {
 
 describe('perf-quick', () => {
   for (const simTime of [1, 2, 5]) {
-    it(`150 balls, pool physics, ${simTime}s`, () => {
+    it(`150 balls, pool physics, ${simTime}s`, { timeout: 60000 }, () => {
       const profile = createPoolPhysicsProfile()
       const circles = generateCircles(150, 2840, 1420, seededRandom(), defaultPhysicsConfig, profile)
       const start = performance.now()

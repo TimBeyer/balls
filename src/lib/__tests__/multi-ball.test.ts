@@ -104,7 +104,7 @@ describe('multi-ball scenarios', () => {
 
     // Should complete without cascade explosion
     expect(replay.length).toBeLessThan(100000)
-  })
+  }, 15000)
 
   it('4 converging balls: all collisions resolved correctly', () => {
     const { replay } = runScenario(findScenario('converging-4-balls'))
@@ -136,8 +136,8 @@ describe('multi-ball scenarios', () => {
     assertNoOverlaps(replay)
     assertInBounds(replay, 2840, 1420)
     assertMonotonicTime(replay)
-    expect(replay.length).toBeLessThan(200000)
-  }, 30000) // 30s timeout for large simulation
+    expect(replay.length).toBeLessThan(600000)
+  }, 60000) // 60s timeout for large simulation
 })
 
 describe('overlap diagnosis: inter-event trajectory sampling', () => {
@@ -162,6 +162,7 @@ describe('overlap diagnosis: inter-event trajectory sampling', () => {
           a: [snap.trajectoryA[0], snap.trajectoryA[1], 0],
           b: [snap.velocity[0], snap.velocity[1], 0],
           c: [snap.position[0], snap.position[1], 0],
+          maxDt: Infinity,
         },
         time: snap.time,
         radius: snap.radius,

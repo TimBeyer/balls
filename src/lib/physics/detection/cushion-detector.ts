@@ -16,6 +16,7 @@ export class QuadraticCushionDetector implements CushionDetector {
   detect(circle: Ball, tableWidth: number, tableHeight: number): CushionCollision {
     const traj = circle.trajectory
     const r = circle.radius
+    const maxDt = traj.maxDt
 
     let minDt = Infinity
     let bestIdx = 0
@@ -23,7 +24,7 @@ export class QuadraticCushionDetector implements CushionDetector {
     // North wall: y = tableHeight - r
     const northRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - (tableHeight - r))
     for (const dt of northRoots) {
-      if (dt > Number.EPSILON && dt < minDt) {
+      if (dt > Number.EPSILON && dt < minDt && dt <= maxDt) {
         minDt = dt
         bestIdx = 0
       }
@@ -32,7 +33,7 @@ export class QuadraticCushionDetector implements CushionDetector {
     // East wall: x = tableWidth - r
     const eastRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - (tableWidth - r))
     for (const dt of eastRoots) {
-      if (dt > Number.EPSILON && dt < minDt) {
+      if (dt > Number.EPSILON && dt < minDt && dt <= maxDt) {
         minDt = dt
         bestIdx = 1
       }
@@ -41,7 +42,7 @@ export class QuadraticCushionDetector implements CushionDetector {
     // South wall: y = r
     const southRoots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - r)
     for (const dt of southRoots) {
-      if (dt > Number.EPSILON && dt < minDt) {
+      if (dt > Number.EPSILON && dt < minDt && dt <= maxDt) {
         minDt = dt
         bestIdx = 2
       }
@@ -50,7 +51,7 @@ export class QuadraticCushionDetector implements CushionDetector {
     // West wall: x = r
     const westRoots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - r)
     for (const dt of westRoots) {
-      if (dt > Number.EPSILON && dt < minDt) {
+      if (dt > Number.EPSILON && dt < minDt && dt <= maxDt) {
         minDt = dt
         bestIdx = 3
       }
