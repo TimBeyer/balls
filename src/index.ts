@@ -391,7 +391,7 @@ function initScene() {
 
     // Playback controller determines effective progress
     const playback = playbackController.resolveProgress(realProgress, nextEvent)
-    const progress = playback.progress
+    let progress = playback.progress
     currentProgress = progress
 
     // When unpausing, adjust start to prevent time jump
@@ -453,6 +453,7 @@ function initScene() {
       restoreInitialState()
       const eventsToReplay = [...eventHistory]
       replayAndFreeze(eventsToReplay)
+      progress = currentProgress
     }
 
     // Handle seek: replay from initial state to target time
@@ -474,11 +475,13 @@ function initScene() {
       nextEvent = eventsRemaining.shift()
       simulatedResults = eventsRemaining
       replayAndFreeze(eventsToApply)
+      progress = currentProgress
 
       // When seeking during playback, adjust start so realProgress matches target
       if (!playbackController.paused) {
         start = timestamp - (target / config.simulationSpeed) * 1000
         currentProgress = target
+        progress = target
       }
     }
 
@@ -516,6 +519,7 @@ function initScene() {
               currentProgress = playbackController.frozenProgress
             }
           }
+          progress = currentProgress
         } else if (playback.consumeOneEvent) {
           // Step mode: process exactly one event
           if (nextEvent && progress >= nextEvent.time) {

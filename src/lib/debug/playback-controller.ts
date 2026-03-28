@@ -15,6 +15,7 @@ export class PlaybackController {
   private _stepRequested = false
   private _stepBackRequested = false
   private _stepToBallEventId: string | null = null
+  private _justUnpaused = false
 
   get paused(): boolean {
     return this._paused
@@ -34,13 +35,18 @@ export class PlaybackController {
     this._stepRequested = false
     this._stepBackRequested = false
     this._stepToBallEventId = null
+    this._justUnpaused = false
   }
 
   togglePause(currentProgress: number): void {
-    this._paused = !this._paused
     if (this._paused) {
+      // Unpausing — signal resolveProgress to return frozenProgress once
+      // so the animation loop can adjust its start time
+      this._justUnpaused = true
+    } else {
       this._frozenProgress = currentProgress
     }
+    this._paused = !this._paused
   }
 
   requestStep(): void {
@@ -63,6 +69,12 @@ export class PlaybackController {
 
   resolveProgress(realProgress: number, nextEvent: ReplayData | undefined): PlaybackResult {
     if (!this._paused) {
+      if (this._justUnpaused) {
+        // Return frozenProgress so the animation loop detects the mismatch
+        // with realProgress and adjusts its start time accordingly
+        this._justUnpaused = false
+        return { progress: this._frozenProgress, shouldProcessEvents: true, consumeOneEvent: false, consumeUntilBallId: null, stepBack: false }
+      }
       return { progress: realProgress, shouldProcessEvents: true, consumeOneEvent: false, consumeUntilBallId: null, stepBack: false }
     }
 
