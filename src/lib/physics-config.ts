@@ -5,6 +5,7 @@ export interface BallPhysicsParams {
   muRolling: number // rolling friction coefficient
   muSpinning: number // spinning friction coefficient
   eRestitution: number // coefficient of restitution (cushion bounce)
+  eBallBall: number // coefficient of restitution (ball-ball collision)
 }
 
 export interface PhysicsConfig {
@@ -21,6 +22,7 @@ export const defaultBallParams: BallPhysicsParams = {
   muRolling: 0.01,
   muSpinning: 0.044,
   eRestitution: 0.85,
+  eBallBall: 0.93,
 }
 
 export const defaultPhysicsConfig: PhysicsConfig = {

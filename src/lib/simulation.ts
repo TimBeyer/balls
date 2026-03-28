@@ -159,7 +159,7 @@ export function simulate(
 
   // Pair collision rate tracker: detects Zeno cascades where external forces
   // keep pushing the same pair back together. Three tiers:
-  //   1-BUDGET: normal physics (progressive restitution)
+  //   1-BUDGET: normal physics (capped progressive restitution)
   //   BUDGET+1 to 2*BUDGET: force fully inelastic
   //   >2*BUDGET: suppress pair (skip detection in recompute until window resets)
   const pairCollisionCounts = new Map<string, { count: number; windowStart: number }>()
@@ -297,18 +297,20 @@ export function simulate(
       // of the trajectory polynomial can leave balls slightly overlapping at the
       // predicted collision time, which would cause the overlap guard to silently
       // skip future collisions for this pair.
-      const dx = c1.position[0] - c2.position[0]
-      const dy = c1.position[1] - c2.position[1]
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      const rSum = c1.radius + c2.radius
-      if (dist > 0 && dist !== rSum) {
-        const half = (rSum - dist) / 2
-        const nx = dx / dist
-        const ny = dy / dist
-        c1.position[0] += nx * half
-        c1.position[1] += ny * half
-        c2.position[0] -= nx * half
-        c2.position[1] -= ny * half
+      {
+        const dx = c1.position[0] - c2.position[0]
+        const dy = c1.position[1] - c2.position[1]
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const rSum = c1.radius + c2.radius
+        if (dist > 0 && dist !== rSum) {
+          const half = (rSum - dist) / 2
+          const nx = dx / dist
+          const ny = dy / dist
+          c1.position[0] += nx * half
+          c1.position[1] += ny * half
+          c2.position[0] -= nx * half
+          c2.position[1] -= ny * half
+        }
       }
 
       // Pair rate limiting: prevent Zeno cascades from external forces
@@ -318,6 +320,9 @@ export function simulate(
         // Way over budget — pair is now suppressed globally. Recompute events
         // for both balls; getSuppressedNeighbors will exclude them from each
         // other's detection. The pair re-enables when the time window expires.
+        // Note: friction may curve trajectories into brief overlap (~1-2mm)
+        // during suppression — this is a known limitation of the pair suppression
+        // mechanism, acceptable to prevent infinite Zeno cascades.
         c1.updateTrajectory(profile, physicsConfig)
         c2.updateTrajectory(profile, physicsConfig)
         c1.clampToBounds(tableWidth, tableHeight)

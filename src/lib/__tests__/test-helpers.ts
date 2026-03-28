@@ -18,6 +18,7 @@ export const zeroFrictionParams: BallPhysicsParams = {
   muRolling: 0,
   muSpinning: 0,
   eRestitution: 1.0,
+  eBallBall: 1.0,
 }
 
 export const zeroFrictionConfig: PhysicsConfig = {

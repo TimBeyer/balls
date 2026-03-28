@@ -13,6 +13,10 @@
  * This prevents Zeno cascades in low-energy clusters. A ball approaching at 30 mm/s
  * loses ~45% of its normal velocity, settles in ~3 bounces instead of ~20+.
  *
+ * Each ball carries a per-ball `eBallBall` parameter (physical coefficient of
+ * restitution, e.g. 0.93 for pool balls). This is not yet used in the ramp —
+ * it requires continuous contact handling to avoid pair-suppression pass-through.
+ *
  * Angular velocity is preserved unchanged (elastic, frictionless, instantaneous model).
  */
 
