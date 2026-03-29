@@ -31,7 +31,9 @@ describe('cushion collisions', () => {
     const cushionHits = getCushionEvents(replay)
     expect(cushionHits.length).toBeGreaterThanOrEqual(1)
 
-    const preHit = getSnapshotById(replay[0], 'ball')!
+    // Find event just before the cushion hit to get pre-impact speed
+    const cushionIdx = replay.indexOf(cushionHits[0])
+    const preHit = getSnapshotById(replay[cushionIdx - 1], 'ball')!
     const preSpeed = computeSpeed(preHit)
 
     const postHit = getSnapshotById(cushionHits[0], 'ball')!
@@ -98,7 +100,7 @@ describe('cushion collisions', () => {
     expect(Math.abs(spinPost.velocity[1])).toBeGreaterThan(Math.abs(noSpinPost.velocity[1]) + 1)
 
     // Post-collision wz should have changed (friction at contact modifies z-spin)
-    expect(spinPost.angularVelocity[2]).not.toBeCloseTo(30, 0)
+    expect(spinPost.angularVelocity[2]).not.toBeCloseTo(80, 0)
   })
 
   it('topspin changes rebound speed compared to no-spin', () => {
