@@ -16,7 +16,6 @@ import { computeTrajectoryPreview, type PreviewResult } from './lib/input/trajec
 import { GameController } from './lib/game/game-controller'
 import { createGameBridge, type GameBridge } from './lib/game/game-bridge'
 import type { GameRules } from './lib/game/rules'
-import type { ShotParams } from './lib/game/types'
 import { createConfig } from './lib/config'
 import type Vector2D from './lib/vector2d'
 
@@ -76,8 +75,8 @@ export function startGame(rules: GameRules, containerElement: HTMLElement): Game
 
   // Game bridge
   const bridge = createGameBridge({
-    onTakeShot: (params: ShotParams) => {
-      controller.takeShot(params)
+    onShoot: () => {
+      if (cueInput) cueInput.shoot()
     },
     onPlaceCueBall: (position: Vector2D) => {
       controller.placeCueBall(position)
@@ -89,6 +88,12 @@ export function startGame(rules: GameRules, containerElement: HTMLElement): Game
     onBackToMenu: () => {
       instance.destroy()
       window.location.hash = ''
+    },
+    onToggleMode: () => {
+      if (!cueInput) return
+      const newMode = cueInput.getMode() === 'aim' ? 'camera' : 'aim'
+      cueInput.setMode(newMode)
+      bridge.update({ inputMode: newMode })
     },
   })
 
@@ -145,32 +150,38 @@ export function startGame(rules: GameRules, containerElement: HTMLElement): Game
           renderer.domElement,
           tableConfig.width,
           tableConfig.height,
-          rules.getMaxShotSpeed(),
           {
-            onAimUpdate: (direction, power) => {
-              bridge.update({ aimDirection: direction, aimPower: power })
+            onAimUpdate: (direction) => {
+              bridge.update({ aimDirection: direction })
+              const snap = bridge.getSnapshot()
               if (cueStick) {
                 cueStick.update(
                   [cueBall.position[0], cueBall.position[1]],
                   direction,
-                  power,
+                  snap.aimPower,
                   tableConfig.width,
                   tableConfig.height,
                   rules.getBallRadius(),
                 )
               }
-              // Update trajectory preview
-              updateTrajectoryPreview(direction, power)
+              updateTrajectoryPreview(direction, snap.aimPower)
             },
-            onShoot: (params) => {
+            onShoot: () => {
               if (cueStick) cueStick.hide()
               if (cueInput) cueInput.setEnabled(false)
               previewResult = null
-              controller.takeShot(params)
+              const snap = bridge.getSnapshot()
+              controller.takeShot({
+                direction: snap.aimDirection,
+                power: snap.aimPower,
+                strikeOffset: snap.strikeOffset,
+                elevation: snap.elevation,
+              })
             },
           },
         )
         cueInput.setCueBallPosition([cueBall.position[0], cueBall.position[1]])
+        cueInput.setControls(simulationScene.getOrbitControls())
       }
 
       // Add pocket visuals

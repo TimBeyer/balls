@@ -3,7 +3,8 @@
  * Analogous to SimulationBridge but for game-specific state.
  */
 
-import type { GameState, ShotResult, ScoreDisplay, ShotParams } from './types'
+import type { GameState, ShotResult, ScoreDisplay } from './types'
+import type { CueInputMode } from '../input/cue-input'
 import type Vector2D from '../vector2d'
 
 export interface GameSnapshot {
@@ -20,13 +21,16 @@ export interface GameSnapshot {
   isSimulating: boolean
   /** Current playback time during simulation */
   playbackTime: number
+  /** Current input mode (aim vs camera) */
+  inputMode: CueInputMode
 }
 
 export interface GameBridgeCallbacks {
-  onTakeShot: (params: ShotParams) => void
+  onShoot: () => void
   onPlaceCueBall: (position: Vector2D) => void
   onNewGame: () => void
   onBackToMenu: () => void
+  onToggleMode: () => void
 }
 
 export interface GameBridge {
@@ -59,6 +63,7 @@ export function createGameBridge(callbacks: GameBridgeCallbacks): GameBridge {
     lastShotResult: null,
     isSimulating: false,
     playbackTime: 0,
+    inputMode: 'aim',
   }
 
   const listeners = new Set<() => void>()

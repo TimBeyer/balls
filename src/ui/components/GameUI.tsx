@@ -12,19 +12,24 @@ interface GameUIProps {
 
 export function GameUI({ bridge }: GameUIProps) {
   const snap = useGameBridge(bridge)
-  const { gameState, scores, lastShotResult, isSimulating } = snap
+  const { gameState, scores, lastShotResult, isSimulating, inputMode } = snap
 
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
       {/* Score bar at top */}
-      <ScoreBar scores={scores} phase={gameState.phase} />
+      <ScoreBar scores={scores} />
 
       {/* Foul notification */}
       {lastShotResult?.foul && gameState.phase === 'aiming' && (
         <FoulBanner reasons={lastShotResult.foulReasons} />
       )}
 
-      {/* Controls at bottom */}
+      {/* Aim/Camera mode toggle — always visible during aiming */}
+      {gameState.phase === 'aiming' && (
+        <ModeToggle mode={inputMode} onToggle={() => bridge.callbacks.onToggleMode()} />
+      )}
+
+      {/* Controls at bottom-right */}
       {gameState.phase === 'aiming' && (
         <AimControls
           power={snap.aimPower}
@@ -32,6 +37,11 @@ export function GameUI({ bridge }: GameUIProps) {
           onPowerChange={(p) => bridge.update({ aimPower: p })}
           onStrikeOffsetChange={(o) => bridge.update({ strikeOffset: o })}
         />
+      )}
+
+      {/* Shoot button — prominent, bottom-center */}
+      {gameState.phase === 'aiming' && inputMode === 'aim' && (
+        <ShootButton onShoot={() => bridge.callbacks.onShoot()} />
       )}
 
       {/* Ball-in-hand indicator */}
@@ -497,5 +507,68 @@ function GameOverOverlay({
         </div>
       </div>
     </div>
+  )
+}
+
+function ModeToggle({ mode, onToggle }: { mode: string; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      style={{
+        position: 'absolute',
+        top: '80px',
+        right: '16px',
+        pointerEvents: 'auto',
+        background: mode === 'aim' ? 'rgba(37, 99, 235, 0.85)' : 'rgba(100, 116, 139, 0.85)',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '24px',
+        padding: '10px 18px',
+        fontSize: '14px',
+        fontWeight: 600,
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+        cursor: 'pointer',
+        touchAction: 'manipulation',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+      }}
+    >
+      {mode === 'aim' ? '🎯 Aim' : '📷 Camera'}
+    </button>
+  )
+}
+
+function ShootButton({ onShoot }: { onShoot: () => void }) {
+  return (
+    <button
+      onClick={onShoot}
+      style={{
+        position: 'absolute',
+        bottom: '28px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        pointerEvents: 'auto',
+        background: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)',
+        color: '#fff',
+        border: '3px solid rgba(255,255,255,0.3)',
+        borderRadius: '50%',
+        width: '72px',
+        height: '72px',
+        fontSize: '14px',
+        fontWeight: 700,
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+        cursor: 'pointer',
+        touchAction: 'manipulation',
+        boxShadow: '0 4px 16px rgba(220, 38, 38, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        letterSpacing: '0.5px',
+      }}
+    >
+      SHOOT
+    </button>
   )
 }
