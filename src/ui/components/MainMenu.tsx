@@ -27,6 +27,7 @@ export function MainMenu({ onStartGame, onSandbox }: MainMenuProps) {
         justifyContent: 'center',
         background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
         zIndex: 100,
+        pointerEvents: 'auto',
         fontFamily: "'Segoe UI', system-ui, sans-serif",
       }}
     >

@@ -68,7 +68,7 @@ export function GameUI({ bridge }: GameUIProps) {
   )
 }
 
-function ScoreBar({ scores }: { scores: { players: { name: string; score: number; active: boolean; group?: string }[] }; phase: string }) {
+function ScoreBar({ scores }: { scores: { players: { name: string; score: number; active: boolean; group?: string }[] } }) {
   if (scores.players.length === 0) return null
   return (
     <div
