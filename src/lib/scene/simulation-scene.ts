@@ -6,6 +6,13 @@ import stringToRGB from '../string-to-rgb'
 import { SimulationConfig } from '../config'
 import { generateBallTexture, type BallTextureSet } from './ball-textures'
 
+/** Clamp a decelerating value to zero: if it crossed zero (sign differs from initial), return 0. */
+function clampToZero(value: number, initial: number): number {
+  if (initial > 0 && value < 0) return 0
+  if (initial < 0 && value > 0) return 0
+  return value
+}
+
 export interface CameraState {
   position: [number, number, number]
   target: [number, number, number]
@@ -77,6 +84,10 @@ class Ball {
     // Compute angular velocity from trajectory coefficients: omega(dt) = alpha*dt + omega0
     // This gives smooth deceleration for Spinning, correct values for Sliding/Airborne,
     // and zero for Stationary (alpha=[0,0,0], omega0=[0,0,0]).
+    // IMPORTANT: Clamp each component to prevent zero-crossing. The linear trajectory
+    // omega(dt) = alpha*dt + omega0 will reverse direction past the zero point, but the
+    // physics simulation schedules a state transition at that exact time. Between events,
+    // the visualization must not extrapolate past zero.
     let omegaX: number, omegaY: number, omegaZ: number
     if (this.circle.motionState === MotionState.Rolling) {
       // For Rolling, derive ωx/ωy from the interpolated velocity (rolling constraint)
@@ -87,13 +98,13 @@ class Ball {
       omegaY = vel[0] / R
       const dt = progress - this.circle.time
       const angTraj = this.circle.angularTrajectory
-      omegaZ = angTraj.alpha[2] * dt + angTraj.omega0[2]
+      omegaZ = clampToZero(angTraj.alpha[2] * dt + angTraj.omega0[2], angTraj.omega0[2])
     } else {
       const dt = progress - this.circle.time
       const angTraj = this.circle.angularTrajectory
-      omegaX = angTraj.alpha[0] * dt + angTraj.omega0[0]
-      omegaY = angTraj.alpha[1] * dt + angTraj.omega0[1]
-      omegaZ = angTraj.alpha[2] * dt + angTraj.omega0[2]
+      omegaX = clampToZero(angTraj.alpha[0] * dt + angTraj.omega0[0], angTraj.omega0[0])
+      omegaY = clampToZero(angTraj.alpha[1] * dt + angTraj.omega0[1], angTraj.omega0[1])
+      omegaZ = clampToZero(angTraj.alpha[2] * dt + angTraj.omega0[2], angTraj.omega0[2])
     }
 
     if (omegaX === 0 && omegaY === 0 && omegaZ === 0) return
