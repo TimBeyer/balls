@@ -4,16 +4,17 @@ import { SpatialGrid } from './spatial-grid'
 import { MotionState } from './motion-state'
 import type { PhysicsConfig } from './physics-config'
 import type { PhysicsProfile } from './physics/physics-profile'
+import type { TableConfig } from './table-config'
+import type { PocketDetector } from './physics/detection/pocket-detector'
+import { QuarticPocketDetector } from './physics/detection/pocket-detector'
+import { SegmentedCushionDetector } from './physics/detection/segmented-cushion-detector'
 
-export enum Cushion {
-  North = 'NORTH',
-  East = 'EAST',
-  South = 'SOUTH',
-  West = 'WEST',
-}
+// Re-export Cushion from its own module (avoids circular dependency with detectors)
+export { Cushion } from './cushion'
+import { Cushion } from './cushion'
 
 export interface Collision {
-  type: 'Circle' | 'Cushion'
+  type: 'Circle' | 'Cushion' | 'Pocket'
   circles: Ball[]
   /** Absolute time when this collision is predicted to occur */
   time: number
@@ -31,6 +32,15 @@ export interface CircleCollision extends Collision {
 export interface CushionCollision extends Collision {
   type: 'Cushion'
   cushion: Cushion
+}
+
+export interface PocketCollision {
+  type: 'Pocket'
+  circles: [Ball]
+  time: number
+  epochs: [number]
+  seq: number
+  pocketId: string
 }
 
 export interface StateTransitionEvent {
@@ -53,7 +63,7 @@ export interface CellTransitionEvent {
   seq: number
 }
 
-export type TreeEvent = Collision | CellTransitionEvent | StateTransitionEvent
+export type TreeEvent = Collision | PocketCollision | CellTransitionEvent | StateTransitionEvent
 
 /**
  * Checks whether an event is still valid by comparing each circle's current epoch
@@ -94,6 +104,9 @@ export class CollisionFinder {
   private grid: SpatialGrid
   private physicsConfig: PhysicsConfig
   private profile: PhysicsProfile
+  private tableConfig: TableConfig | undefined
+  private pocketDetector: PocketDetector | undefined
+  private effectiveProfile: PhysicsProfile
   /** Monotonic counter ensuring deterministic event ordering */
   private nextSeq: number = 0
 
@@ -108,6 +121,7 @@ export class CollisionFinder {
     circles: Ball[],
     physicsConfig: PhysicsConfig,
     profile: PhysicsProfile,
+    tableConfig?: TableConfig,
   ) {
     this.heap = new MinHeap<TreeEvent>()
     this.tableWidth = tableWidth
@@ -115,7 +129,20 @@ export class CollisionFinder {
     this.circles = circles
     this.physicsConfig = physicsConfig
     this.profile = profile
+    this.tableConfig = tableConfig
     this.grid = new SpatialGrid(tableWidth, tableHeight, circles.length > 0 ? circles[0].radius * 4 : 150)
+
+    // If table has pockets, use segmented cushion detector and pocket detector
+    if (tableConfig && tableConfig.pockets.length > 0) {
+      this.pocketDetector = new QuarticPocketDetector()
+      const segmentedDetector = new SegmentedCushionDetector(tableConfig.cushionSegments)
+      this.effectiveProfile = {
+        ...profile,
+        cushionDetector: segmentedDetector,
+      }
+    } else {
+      this.effectiveProfile = profile
+    }
 
     this.initialize()
   }
@@ -131,19 +158,22 @@ export class CollisionFinder {
     }
   }
 
-  /** Schedule cushion, ball-ball, state transition, and cell transition events for a ball */
+  /** Schedule cushion, ball-ball, pocket, state transition, and cell transition events for a ball */
   private scheduleAllEvents(circle: Ball, skipBallBall = false) {
-    // Cushion collision (via detector from profile)
-    const cushionCollision = this.profile.cushionDetector.detect(circle, this.tableWidth, this.tableHeight)
+    // Cushion collision (via detector from profile — may be segmented for pocket tables)
+    const cushionCollision = this.effectiveProfile.cushionDetector.detect(circle, this.tableWidth, this.tableHeight)
     cushionCollision.seq = this.nextSeq++
     this.heap.push(cushionCollision)
+
+    // Pocket detection (only for tables with pockets)
+    this.schedulePocketEvents(circle)
 
     // Ball-ball collisions with neighbors (via detector from profile)
     if (!skipBallBall) {
       const neighbors = this.grid.getNearbyCircles(circle)
       for (const neighbor of neighbors) {
         if (circle.id >= neighbor.id) continue
-        const time = this.profile.ballBallDetector.detect(circle, neighbor)
+        const time = this.effectiveProfile.ballBallDetector.detect(circle, neighbor)
         if (time) {
           const collision: Collision = {
             type: 'Circle',
@@ -164,8 +194,26 @@ export class CollisionFinder {
     this.scheduleNextCellTransition(circle)
   }
 
+  /** Schedule pocket entry events for a ball (if table has pockets) */
+  private schedulePocketEvents(circle: Ball) {
+    if (!this.pocketDetector || !this.tableConfig) return
+
+    const result = this.pocketDetector.detect(circle, this.tableConfig.pockets)
+    if (result) {
+      const pocketEvent: PocketCollision = {
+        type: 'Pocket',
+        circles: [circle],
+        time: result.time,
+        epochs: [circle.epoch],
+        seq: this.nextSeq++,
+        pocketId: result.pocketId,
+      }
+      this.heap.push(pocketEvent)
+    }
+  }
+
   private scheduleStateTransition(circle: Ball) {
-    const model = this.profile.motionModels.get(circle.motionState)
+    const model = this.effectiveProfile.motionModels.get(circle.motionState)
     if (!model) return
 
     const transition = model.getTransitionTime(circle, this.physicsConfig)
@@ -205,7 +253,7 @@ export class CollisionFinder {
    * the caller must then apply physics and call recompute() for each circle.
    * State transition events are also returned so the caller can record them.
    */
-  pop(): Collision | StateTransitionEvent {
+  pop(): Collision | PocketCollision | StateTransitionEvent {
     for (;;) {
       const next = this.heap.pop()!
 
@@ -236,6 +284,13 @@ export class CollisionFinder {
         return next as StateTransitionEvent
       }
 
+      if (next.type === 'Pocket') {
+        for (const circle of next.circles) {
+          circle.epoch++
+        }
+        return next as PocketCollision
+      }
+
       // Collision event: invalidate epochs for involved circles
       for (const circle of next.circles) {
         circle.epoch++
@@ -256,10 +311,10 @@ export class CollisionFinder {
   recompute(circleId: string, excludeIds?: Set<string>) {
     const referenceCircle = this.circlesById.get(circleId)!
 
-    // Cushion collision (via detector from profile)
+    // Cushion collision (via detector from profile — may be segmented)
     // Airborne balls are above the table and don't interact with cushions
     if (referenceCircle.motionState !== MotionState.Airborne) {
-      const cushionCollision = this.profile.cushionDetector.detect(
+      const cushionCollision = this.effectiveProfile.cushionDetector.detect(
         referenceCircle,
         this.tableWidth,
         this.tableHeight,
@@ -268,11 +323,14 @@ export class CollisionFinder {
       this.heap.push(cushionCollision)
     }
 
+    // Pocket detection
+    this.schedulePocketEvents(referenceCircle)
+
     // Ball-ball collisions with neighbors (via detector from profile)
     const neighbors = this.grid.getNearbyCircles(referenceCircle)
     for (const neighbor of neighbors) {
       if (excludeIds && excludeIds.has(neighbor.id)) continue
-      const time = this.profile.ballBallDetector.detect(referenceCircle, neighbor)
+      const time = this.effectiveProfile.ballBallDetector.detect(referenceCircle, neighbor)
       if (time) {
         const collision: Collision = {
           type: 'Circle',
@@ -289,6 +347,19 @@ export class CollisionFinder {
     this.scheduleStateTransition(referenceCircle)
 
     this.scheduleNextCellTransition(referenceCircle)
+  }
+
+  /**
+   * Remove a ball from the simulation (e.g. when pocketed).
+   * Increments the ball's epoch to invalidate all pending events,
+   * removes from spatial grid and tracking structures.
+   */
+  removeBall(ball: Ball) {
+    ball.epoch++
+    this.grid.removeCircle(ball)
+    this.circlesById.delete(ball.id)
+    const idx = this.circles.indexOf(ball)
+    if (idx !== -1) this.circles.splice(idx, 1)
   }
 
 }

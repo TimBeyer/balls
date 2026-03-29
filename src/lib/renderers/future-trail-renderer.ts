@@ -7,6 +7,7 @@ const EVENT_STYLES: Record<EventType, { color: string; dash: number[]; width: nu
   [EventType.CushionCollision]: { color: '#457B9D', dash: [8, 4], width: 2 },
   [EventType.StateTransition]: { color: '#2A9D8F', dash: [2, 4], width: 2 },
   [EventType.StateUpdate]: { color: '#E9C46A', dash: [8, 4, 2, 4], width: 1.5 },
+  [EventType.BallPocketed]: { color: '#FF6B6B', dash: [4, 4], width: 2 },
 }
 
 interface BallEvent {

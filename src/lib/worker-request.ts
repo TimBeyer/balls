@@ -6,6 +6,7 @@ export enum RequestMessageType {
 
 import type { PhysicsProfileName, PhysicsOverrides } from './config'
 import type { Scenario } from './scenarios'
+import type { TableConfig } from './table-config'
 
 export interface InitializationRequestPayload {
   numBalls: number
@@ -13,6 +14,7 @@ export interface InitializationRequestPayload {
   tableHeight: number
   physicsProfile: PhysicsProfileName
   physicsOverrides?: PhysicsOverrides
+  tableConfig?: TableConfig
 }
 
 export interface SimulationRequestPayload {

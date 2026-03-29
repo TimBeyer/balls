@@ -8,6 +8,8 @@
  * Implementations:
  * - QuarticBallBallDetector: solves quartic for two quadratic trajectories
  * - QuadraticCushionDetector: solves quadratic for ball vs axis-aligned wall
+ * - SegmentedCushionDetector: like Quadratic but with gaps at pocket mouths
+ * - QuarticPocketDetector: solves quartic for ball vs pocket acceptance circle
  */
 
 import type Ball from '../../ball'
@@ -22,3 +24,5 @@ export interface CushionDetector {
   /** Compute the earliest cushion collision for a ball. Always returns an event (may be at Infinity). */
   detect(ball: Ball, tableWidth: number, tableHeight: number): CushionCollision
 }
+
+export { type PocketDetector, type PocketCollisionResult } from './pocket-detector'

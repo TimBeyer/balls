@@ -241,6 +241,10 @@ export default class SimulationScene {
     return { controls, spotLight1, spotLight2 }
   }
 
+  getOrbitControls(): OrbitControls {
+    return this.controls
+  }
+
   getCameraState(): CameraState {
     return {
       position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],

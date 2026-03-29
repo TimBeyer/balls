@@ -23,6 +23,8 @@ export interface Scenario {
   balls: BallSpec[]
   physics: 'pool' | 'simple2d' | 'zero-friction'
   duration: number // recommended simulation time in seconds
+  /** Table type for pocket support. 'sandbox' or omitted = no pockets (existing behavior). */
+  tableType?: 'pool' | 'snooker' | 'sandbox'
 }
 
 // ─── Standard table dimensions ───────────────────────────────────────────────

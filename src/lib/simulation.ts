@@ -1,4 +1,4 @@
-import { Cushion, CushionCollision, CollisionFinder, StateTransitionEvent } from './collision'
+import { Cushion, CushionCollision, CollisionFinder, StateTransitionEvent, type PocketCollision } from './collision'
 import type Vector2D from './vector2d'
 import type Ball from './ball'
 import { MotionState } from './motion-state'
@@ -8,6 +8,7 @@ import { createPoolPhysicsProfile } from './physics/physics-profile'
 import type Vector3D from './vector3d'
 import type { Han2005CushionResolver } from './physics/collision/han2005-cushion-resolver'
 import { solveContactCluster } from './physics/collision/contact-cluster-solver'
+import type { TableConfig } from './table-config'
 
 export interface CircleSnapshot {
   id: string
@@ -30,6 +31,7 @@ export interface ReplayData {
   snapshots: CircleSnapshot[]
   type: EventType
   cushionType?: Cushion
+  pocketId?: string
 }
 
 export enum EventType {
@@ -37,11 +39,14 @@ export enum EventType {
   CushionCollision = 'CUSHION_COLLISION',
   StateTransition = 'STATE_TRANSITION',
   StateUpdate = 'STATE_UPDATE',
+  BallPocketed = 'BALL_POCKETED',
 }
 
 export interface SimulateOptions {
   /** Enable runtime invariant assertions for debugging. */
   debug?: boolean
+  /** Table configuration with pockets (if omitted, no pockets — sandbox mode). */
+  tableConfig?: TableConfig
 }
 
 function snapshotBall(ball: Ball): CircleSnapshot {
@@ -157,10 +162,13 @@ export function simulate(
     snapshots: circles.map(snapshotBall),
   })
 
-  const collisionFinder = new CollisionFinder(tableWidth, tableHeight, circles, physicsConfig, profile)
+  const collisionFinder = new CollisionFinder(tableWidth, tableHeight, circles, physicsConfig, profile, options?.tableConfig)
 
-  // Check if all balls are stationary
-  const allStationary = () => circles.every((b) => b.motionState === MotionState.Stationary)
+  // Track pocketed balls separately (removed from circles array by CollisionFinder)
+  const pocketedBallIds = new Set<string>()
+
+  // Check if all remaining balls are stationary (or all pocketed)
+  const allStationary = () => circles.length === 0 || circles.every((b) => b.motionState === MotionState.Stationary)
 
   // Pair collision rate tracker: detects Zeno cascades where external forces
   // keep pushing the same pair back together. Three tiers:
@@ -247,6 +255,27 @@ export function simulate(
       })
 
       collisionFinder.recompute(ball.id, getSuppressedNeighbors(ball.id))
+      continue
+    }
+
+    // Pocket event — ball entered a pocket, remove it from simulation
+    if (event.type === 'Pocket') {
+      const pocketEvent = event as PocketCollision
+      const ball = pocketEvent.circles[0]
+      ball.advanceTime(pocketEvent.time)
+      currentTime = pocketEvent.time
+
+      pocketedBallIds.add(ball.id)
+
+      replay.push({
+        time: currentTime,
+        type: EventType.BallPocketed,
+        snapshots: [snapshotBall(ball)],
+        pocketId: pocketEvent.pocketId,
+      })
+
+      // Remove ball from simulation — epoch increment + spatial grid removal
+      collisionFinder.removeBall(ball)
       continue
     }
 

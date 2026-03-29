@@ -6,7 +6,8 @@
  */
 
 import type Ball from '../../ball'
-import { Cushion, type CushionCollision } from '../../collision'
+import { Cushion } from '../../cushion'
+import type { CushionCollision } from '../../collision'
 import { solveQuadratic } from '../../polynomial-solver'
 import type { CushionDetector } from './collision-detector'
 
