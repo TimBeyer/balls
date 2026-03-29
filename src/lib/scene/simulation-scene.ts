@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import Circle from '../circle'
+import { MotionState } from '../motion-state'
 import stringToRGB from '../string-to-rgb'
 import { SimulationConfig } from '../config'
 import { generateBallTexture, type BallTextureSet } from './ball-textures'
@@ -75,21 +76,37 @@ class Ball {
     const cappedDelta = Math.min(frameDelta, 0.1)
     if (cappedDelta < 1e-9) return
 
-    const omega = this.circle.angularVelocity
-    // Skip if no angular velocity
-    if (omega[0] === 0 && omega[1] === 0 && omega[2] === 0) return
+    // Determine angular velocity. For rolling balls, derive it from the current
+    // interpolated velocity (rolling constraint: ωx = -vy/R, ωy = vx/R) since
+    // the snapshot angular velocity goes stale between events. For other states,
+    // use the snapshot angular velocity directly.
+    let omegaX: number, omegaY: number, omegaZ: number
+    if (this.circle.motionState === MotionState.Rolling) {
+      const vel = this.circle.velocityAtTime(progress)
+      const R = this.circle.radius
+      omegaX = -vel[1] / R
+      omegaY = vel[0] / R
+      omegaZ = this.circle.angularVelocity[2]
+    } else {
+      omegaX = this.circle.angularVelocity[0]
+      omegaY = this.circle.angularVelocity[1]
+      omegaZ = this.circle.angularVelocity[2]
+    }
 
-    // Small rotation angle = omega * dt
-    const rx = omega[0] * cappedDelta
-    const ry = omega[1] * cappedDelta
-    const rz = omega[2] * cappedDelta
+    if (omegaX === 0 && omegaY === 0 && omegaZ === 0) return
 
-    // Convert physics coords to Three.js coords:
-    // Physics (X, Y, Z) position maps to Three.js (X, Z, Y)
-    // Same mapping for angular velocity axes
-    const threeRX = rx
-    const threeRY = rz
-    const threeRZ = ry
+    // Small rotation angle = omega * dt (in physics coordinates)
+    const rx = omegaX * cappedDelta
+    const ry = omegaY * cappedDelta
+    const rz = omegaZ * cappedDelta
+
+    // Convert physics angular velocity to Three.js coordinates.
+    // Position mapping: physics (X, Y, Z) → Three.js (X, Z, Y) swaps Y↔Z,
+    // which is a handedness-flipping reflection. Angular velocity is a pseudovector,
+    // so it transforms as ω' = -M·ω, meaning all components are negated.
+    const threeRX = -rx
+    const threeRY = -rz
+    const threeRZ = -ry
 
     const angle = Math.sqrt(threeRX * threeRX + threeRY * threeRY + threeRZ * threeRZ)
     if (angle > 1e-9) {
