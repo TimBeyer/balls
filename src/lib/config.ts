@@ -1,3 +1,5 @@
+import type { BallTextureSet } from './scene/ball-textures'
+
 export type PhysicsProfileName = 'pool' | 'simple2d'
 
 export interface PhysicsOverrides {
@@ -23,6 +25,8 @@ export interface SimulationConfig {
   shadowMapSize: number
   ballRoughness: number
   ballSegments: number
+  ballTextureSet: BallTextureSet
+  ballRotationEnabled: boolean
 
   // Lighting
   lightIntensity: number
@@ -72,6 +76,8 @@ export const defaultConfig: SimulationConfig = {
   shadowMapSize: 1024,
   ballRoughness: 0,
   ballSegments: 32,
+  ballTextureSet: 'american',
+  ballRotationEnabled: true,
 
   lightIntensity: 1,
   lightHeight: 1200,

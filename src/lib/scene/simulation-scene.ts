@@ -1,8 +1,17 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import Circle from '../circle'
+import { MotionState } from '../motion-state'
 import stringToRGB from '../string-to-rgb'
 import { SimulationConfig } from '../config'
+import { generateBallTexture, type BallTextureSet } from './ball-textures'
+
+/** Clamp a decelerating value to zero: if it crossed zero (sign differs from initial), return 0. */
+function clampToZero(value: number, initial: number): number {
+  if (initial > 0 && value < 0) return 0
+  if (initial < 0 && value > 0) return 0
+  return value
+}
 
 export interface CameraState {
   position: [number, number, number]
@@ -16,17 +25,30 @@ class Ball {
   private circle: Circle
   private tableWidth: number
   private tableHeight: number
+  private ballIndex: number
+  private rotationEnabled: boolean
 
-  constructor(circle: Circle, config: SimulationConfig) {
+  // Rotation tracking: per-frame incremental rotation
+  private lastProgress = -1
+
+  constructor(circle: Circle, index: number, config: SimulationConfig) {
     this.circle = circle
     this.radius = circle.radius
     this.tableWidth = config.tableWidth
     this.tableHeight = config.tableHeight
+    this.ballIndex = index
+    this.rotationEnabled = config.ballRotationEnabled
 
-    this.sphereMaterial = new THREE.MeshStandardMaterial({ color: stringToRGB(this.circle.id), roughness: config.ballRoughness })
+    this.sphereMaterial = new THREE.MeshStandardMaterial({
+      color: stringToRGB(this.circle.id),
+      roughness: config.ballRoughness,
+    })
     const envMap = new THREE.TextureLoader().load('env-map.png')
     envMap.mapping = THREE.EquirectangularReflectionMapping
     this.sphereMaterial.envMap = envMap
+
+    // Apply texture if a set is configured
+    this.applyTexture(config.ballTextureSet)
 
     this.sphere = new THREE.Mesh(
       new THREE.SphereGeometry(this.radius, config.ballSegments, config.ballSegments),
@@ -42,10 +64,93 @@ class Ball {
     this.sphere.position.x = pos[0] - this.tableWidth / 2
     this.sphere.position.y = this.radius + Math.max(0, pos[2])
     this.sphere.position.z = pos[1] - this.tableHeight / 2
+
+    if (!this.rotationEnabled) return
+
+    // Per-frame incremental rotation using interpolated angular velocity.
+    if (this.lastProgress < 0 || progress < this.lastProgress) {
+      // First frame or time went backwards (seek) — just record, don't rotate
+      this.lastProgress = progress
+      return
+    }
+
+    const frameDelta = progress - this.lastProgress
+    this.lastProgress = progress
+
+    // Cap frame delta to avoid huge rotations after pauses or event catch-up
+    const cappedDelta = Math.min(frameDelta, 0.1)
+    if (cappedDelta < 1e-9) return
+
+    // Compute angular velocity from trajectory coefficients: omega(dt) = alpha*dt + omega0
+    // Clamp to prevent zero-crossing (mirrors the clamp in Ball.advanceTime).
+    let omegaX: number, omegaY: number, omegaZ: number
+    if (this.circle.motionState === MotionState.Rolling) {
+      // For Rolling, derive ωx/ωy from the interpolated velocity (rolling constraint)
+      // since it's the most accurate. Use trajectory for ωz (spin).
+      const vel = this.circle.velocityAtTime(progress)
+      const R = this.circle.radius
+      omegaX = -vel[1] / R
+      omegaY = vel[0] / R
+      const dt = progress - this.circle.time
+      const angTraj = this.circle.angularTrajectory
+      omegaZ = clampToZero(angTraj.alpha[2] * dt + angTraj.omega0[2], angTraj.omega0[2])
+    } else {
+      const dt = progress - this.circle.time
+      const angTraj = this.circle.angularTrajectory
+      omegaX = clampToZero(angTraj.alpha[0] * dt + angTraj.omega0[0], angTraj.omega0[0])
+      omegaY = clampToZero(angTraj.alpha[1] * dt + angTraj.omega0[1], angTraj.omega0[1])
+      omegaZ = clampToZero(angTraj.alpha[2] * dt + angTraj.omega0[2], angTraj.omega0[2])
+    }
+
+    if (omegaX === 0 && omegaY === 0 && omegaZ === 0) return
+
+    // Small rotation angle = omega * dt (in physics coordinates)
+    const rx = omegaX * cappedDelta
+    const ry = omegaY * cappedDelta
+    const rz = omegaZ * cappedDelta
+
+    // Convert physics angular velocity to Three.js coordinates.
+    // Position mapping: physics (X, Y, Z) → Three.js (X, Z, Y) swaps Y↔Z,
+    // which is a handedness-flipping reflection. Angular velocity is a pseudovector,
+    // so it transforms as ω' = -M·ω, meaning all components are negated.
+    const threeRX = -rx
+    const threeRY = -rz
+    const threeRZ = -ry
+
+    const angle = Math.sqrt(threeRX * threeRX + threeRY * threeRY + threeRZ * threeRZ)
+    if (angle > 1e-9) {
+      const axis = new THREE.Vector3(threeRX / angle, threeRY / angle, threeRZ / angle)
+      const deltaQ = new THREE.Quaternion().setFromAxisAngle(axis, angle)
+      this.sphere.quaternion.premultiply(deltaQ)
+    }
   }
 
   updateRoughness(roughness: number) {
     this.sphereMaterial.roughness = roughness
+  }
+
+  applyTexture(set: BallTextureSet) {
+    const texture = generateBallTexture(this.ballIndex, set)
+    if (texture) {
+      this.sphereMaterial.map = texture
+      this.sphereMaterial.color.set('#ffffff')
+    } else {
+      this.sphereMaterial.map = null
+      this.sphereMaterial.color.set(stringToRGB(this.circle.id))
+    }
+    this.sphereMaterial.needsUpdate = true
+  }
+
+  setRotationEnabled(enabled: boolean) {
+    this.rotationEnabled = enabled
+    if (!enabled) {
+      this.sphere.quaternion.identity()
+    }
+  }
+
+  resetRotation() {
+    this.sphere.quaternion.identity()
+    this.lastProgress = -1
   }
 }
 
@@ -59,16 +164,18 @@ export default class SimulationScene {
   private spotLight1: THREE.SpotLight
   private spotLight2: THREE.SpotLight
   private config: SimulationConfig
+  private currentTextureSet: BallTextureSet
 
   constructor(canvas: HTMLCanvasElement, circles: Circle[], config: SimulationConfig, rendererCanvas?: HTMLCanvasElement) {
     this.config = config
+    this.currentTextureSet = config.ballTextureSet
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(config.fov, window.innerWidth / window.innerHeight, 1, 10000)
     this.canvas2D = canvas
     this.canvasTexture = new THREE.Texture(this.canvas2D)
 
-    for (const circle of circles) {
-      const ball = new Ball(circle, config)
+    for (let i = 0; i < circles.length; i++) {
+      const ball = new Ball(circles[i], i, config)
       this.balls.push(ball)
       this.scene.add(ball.sphere)
     }
@@ -168,6 +275,19 @@ export default class SimulationScene {
     // Ball roughness
     for (const ball of this.balls) {
       ball.updateRoughness(config.ballRoughness)
+    }
+
+    // Texture set change (live, no restart needed)
+    if (config.ballTextureSet !== this.currentTextureSet) {
+      this.currentTextureSet = config.ballTextureSet
+      for (const ball of this.balls) {
+        ball.applyTexture(config.ballTextureSet)
+      }
+    }
+
+    // Rotation toggle
+    for (const ball of this.balls) {
+      ball.setRotationEnabled(config.ballRotationEnabled)
     }
   }
 

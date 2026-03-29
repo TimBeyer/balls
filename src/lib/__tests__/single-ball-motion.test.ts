@@ -80,28 +80,26 @@ describe('single ball motion', () => {
     expect(computeSpeed(last)).toBeLessThan(1)
   })
 
-  it('ball with sidespin: goes through state transitions to stationary', () => {
+  it('ball with sidespin: spinning state invariants hold if spinning occurs', () => {
     const { replay } = runScenario(findScenario('rolling-to-spinning-to-stationary'))
     const transitions = getStateTransitions(replay)
 
     // Should have at least one state transition
     expect(transitions.length).toBeGreaterThanOrEqual(1)
 
-    // Check if Spinning state appears anywhere in the replay
-    const hasSpinning = replay.some((event) =>
-      event.snapshots.some((snap) => snap.id === 'ball' && snap.motionState === MotionState.Spinning),
+    // Check if Spinning state appears. Whether it does depends on whether z-spin
+    // outlasts linear speed — both outcomes are valid given quiescence thresholds.
+    const spinEvent = replay.find((e) =>
+      e.snapshots.some((s) => s.id === 'ball' && s.motionState === MotionState.Spinning),
     )
 
-    // The ball has both rolling-constraint spin AND z-spin=50.
-    // If z-spin survives after forward velocity stops → Spinning state appears.
-    // If z-spin decays first → goes straight to Stationary. Either is valid physics.
-    if (hasSpinning) {
-      // Find the spinning snapshot — forward velocity should be ~0
-      const spinEvent = replay.find((e) =>
-        e.snapshots.some((s) => s.id === 'ball' && s.motionState === MotionState.Spinning),
-      )!
+    if (spinEvent) {
       const snap = getSnapshotById(spinEvent, 'ball')!
+      // During Spinning: linear velocity should be ~0
       expect(computeSpeed(snap)).toBeLessThan(5)
+      // During Spinning: only wz should be nonzero (wx≈0, wy≈0)
+      expect(Math.abs(snap.angularVelocity[0])).toBeLessThan(1)
+      expect(Math.abs(snap.angularVelocity[1])).toBeLessThan(1)
       expect(Math.abs(snap.angularVelocity[2])).toBeGreaterThan(0.1)
     }
 
@@ -110,14 +108,24 @@ describe('single ball motion', () => {
     expect(last.motionState).toBe(MotionState.Stationary)
   })
 
-  it('spinning → stationary (pure z-spin decays)', () => {
+  it('spinning → stationary: pure z-spin decays with correct invariants', () => {
     const { replay } = runScenario(findScenario('spinning-to-stationary'))
     const first = getSnapshotById(replay[0], 'ball')!
     expect(first.motionState).toBe(MotionState.Spinning)
     expect(Math.abs(first.angularVelocity[2])).toBeGreaterThan(10)
 
+    // During Spinning: vx=0, vy=0, ωx=0, ωy=0
+    expect(first.velocity[0]).toBeCloseTo(0, 1)
+    expect(first.velocity[1]).toBeCloseTo(0, 1)
+    expect(first.angularVelocity[0]).toBeCloseTo(0, 1)
+    expect(first.angularVelocity[1]).toBeCloseTo(0, 1)
+
     const last = getSnapshotById(getLastEvent(replay), 'ball')!
     expect(last.motionState).toBe(MotionState.Stationary)
+    // All angular velocity components should be zero at stationary
+    expect(last.angularVelocity[0]).toBeCloseTo(0, 1)
+    expect(last.angularVelocity[1]).toBeCloseTo(0, 1)
+    expect(last.angularVelocity[2]).toBeCloseTo(0, 1)
   })
 
   it('pure backspin creates sliding state', () => {
@@ -179,6 +187,24 @@ describe('single ball motion', () => {
         expect(actualDt).toBeCloseTo(expectedDt, 0)
       }
     }
+  })
+
+  it('diagonal sliding → rolling enforces 2D rolling constraint', () => {
+    const { replay } = runScenario(findScenario('sliding-diagonal'))
+    const transitions = getStateTransitions(replay)
+
+    const rollingTransition = transitions.find((e) => {
+      const snap = getSnapshotById(e, 'ball')
+      return snap?.motionState === MotionState.Rolling
+    })
+    expect(rollingTransition).toBeDefined()
+
+    const snap = getSnapshotById(rollingTransition!, 'ball')!
+    const vx = snap.velocity[0]
+    const vy = snap.velocity[1]
+    // Rolling constraint: ωx = -vy/R, ωy = vx/R
+    expect(snap.angularVelocity[0]).toBeCloseTo(-vy / R, 0)
+    expect(snap.angularVelocity[1]).toBeCloseTo(vx / R, 0)
   })
 
   it('all balls reach stationary with friction', () => {
