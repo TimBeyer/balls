@@ -60,9 +60,7 @@ class Ball {
 
     if (!this.rotationEnabled) return
 
-    // Per-frame incremental rotation using the ball's current angular velocity.
-    // We use angularVelocity (synced from event snapshots) rather than angularTrajectory
-    // (which is not sent to the main thread).
+    // Per-frame incremental rotation using interpolated angular velocity.
     if (this.lastProgress < 0 || progress < this.lastProgress) {
       // First frame or time went backwards (seek) — just record, don't rotate
       this.lastProgress = progress
@@ -76,21 +74,26 @@ class Ball {
     const cappedDelta = Math.min(frameDelta, 0.1)
     if (cappedDelta < 1e-9) return
 
-    // Determine angular velocity. For rolling balls, derive it from the current
-    // interpolated velocity (rolling constraint: ωx = -vy/R, ωy = vx/R) since
-    // the snapshot angular velocity goes stale between events. For other states,
-    // use the snapshot angular velocity directly.
+    // Compute angular velocity from trajectory coefficients: omega(dt) = alpha*dt + omega0
+    // This gives smooth deceleration for Spinning, correct values for Sliding/Airborne,
+    // and zero for Stationary (alpha=[0,0,0], omega0=[0,0,0]).
     let omegaX: number, omegaY: number, omegaZ: number
     if (this.circle.motionState === MotionState.Rolling) {
+      // For Rolling, derive ωx/ωy from the interpolated velocity (rolling constraint)
+      // since it's the most accurate. Use trajectory for ωz (spin).
       const vel = this.circle.velocityAtTime(progress)
       const R = this.circle.radius
       omegaX = -vel[1] / R
       omegaY = vel[0] / R
-      omegaZ = this.circle.angularVelocity[2]
+      const dt = progress - this.circle.time
+      const angTraj = this.circle.angularTrajectory
+      omegaZ = angTraj.alpha[2] * dt + angTraj.omega0[2]
     } else {
-      omegaX = this.circle.angularVelocity[0]
-      omegaY = this.circle.angularVelocity[1]
-      omegaZ = this.circle.angularVelocity[2]
+      const dt = progress - this.circle.time
+      const angTraj = this.circle.angularTrajectory
+      omegaX = angTraj.alpha[0] * dt + angTraj.omega0[0]
+      omegaY = angTraj.alpha[1] * dt + angTraj.omega0[1]
+      omegaZ = angTraj.alpha[2] * dt + angTraj.omega0[2]
     }
 
     if (omegaX === 0 && omegaY === 0 && omegaZ === 0) return

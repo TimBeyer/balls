@@ -19,6 +19,9 @@ export interface CircleSnapshot {
   time: number
   /** Quadratic acceleration coefficients for interpolation between events */
   trajectoryA: Vector2D
+  /** Angular trajectory: omega(dt) = alpha*dt + omega0 for smooth spin interpolation */
+  angularAlpha: Vector3D
+  angularOmega0: Vector3D
 }
 
 export interface ReplayData {
@@ -51,6 +54,8 @@ function snapshotBall(ball: Ball): CircleSnapshot {
     radius: ball.radius,
     time: ball.time,
     trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+    angularAlpha: [ball.angularTrajectory.alpha[0], ball.angularTrajectory.alpha[1], ball.angularTrajectory.alpha[2]],
+    angularOmega0: [ball.angularTrajectory.omega0[0], ball.angularTrajectory.omega0[1], ball.angularTrajectory.omega0[2]],
   }
 }
 

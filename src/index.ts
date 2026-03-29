@@ -61,6 +61,8 @@ interface BallStateSnapshot {
   angularVelocity: Vector3D
   motionState: MotionState
   trajectoryA: [number, number]
+  angularAlpha: Vector3D
+  angularOmega0: Vector3D
 }
 let initialBallStates: Map<string, BallStateSnapshot> | null = null
 let lastConsumedEvent: EventEntry | null = null
@@ -201,6 +203,10 @@ function startSimulation() {
               ball.trajectory.a[0] = snapshot.trajectoryA[0]
               ball.trajectory.a[1] = snapshot.trajectoryA[1]
             }
+            if (snapshot.angularAlpha) {
+              ball.angularTrajectory.alpha = [...snapshot.angularAlpha]
+              ball.angularTrajectory.omega0 = [...snapshot.angularOmega0]
+            }
             if (snapshot.motionState) {
               ball.motionState = snapshot.motionState
             }
@@ -224,6 +230,8 @@ function startSimulation() {
             angularVelocity: [...ball.angularVelocity],
             motionState: ball.motionState,
             trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+            angularAlpha: [...ball.angularTrajectory.alpha],
+            angularOmega0: [...ball.angularTrajectory.omega0],
           })
         }
 
@@ -356,6 +364,10 @@ function initScene() {
       circle.trajectory.b[1] = snapshot.velocity[1]
       circle.trajectory.c[0] = snapshot.position[0]
       circle.trajectory.c[1] = snapshot.position[1]
+      if (snapshot.angularAlpha) {
+        circle.angularTrajectory.alpha = [...snapshot.angularAlpha]
+        circle.angularTrajectory.omega0 = [...snapshot.angularOmega0]
+      }
     }
 
     // Build deltas with after state
@@ -407,6 +419,8 @@ function initScene() {
         ball.trajectory.b[1] = snap.velocity[1]
         ball.trajectory.c[0] = snap.position[0]
         ball.trajectory.c[1] = snap.position[1]
+        ball.angularTrajectory.alpha = [...snap.angularAlpha]
+        ball.angularTrajectory.omega0 = [...snap.angularOmega0]
       }
     }
 
