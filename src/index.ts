@@ -537,7 +537,6 @@ function initScene() {
       config.showPhantomBalls,
     )
 
-
     scene.renderAtTime(progress)
     // Always render circles; other renderers require nextEvent
     for (const circleId of circleIds) {
