@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import Circle from '../circle'
 import stringToRGB from '../string-to-rgb'
 import { SimulationConfig } from '../config'
+import { generateBallTexture, type BallTextureSet } from './ball-textures'
 
 export interface CameraState {
   position: [number, number, number]
@@ -16,17 +17,31 @@ class Ball {
   private circle: Circle
   private tableWidth: number
   private tableHeight: number
+  private ballIndex: number
+  private rotationEnabled: boolean
 
-  constructor(circle: Circle, config: SimulationConfig) {
+  // Rotation tracking: accumulate rotation across trajectory segments
+  private baseQuaternion = new THREE.Quaternion()
+  private lastCircleTime = -1
+
+  constructor(circle: Circle, index: number, config: SimulationConfig) {
     this.circle = circle
     this.radius = circle.radius
     this.tableWidth = config.tableWidth
     this.tableHeight = config.tableHeight
+    this.ballIndex = index
+    this.rotationEnabled = config.ballRotationEnabled
 
-    this.sphereMaterial = new THREE.MeshStandardMaterial({ color: stringToRGB(this.circle.id), roughness: config.ballRoughness })
+    this.sphereMaterial = new THREE.MeshStandardMaterial({
+      color: stringToRGB(this.circle.id),
+      roughness: config.ballRoughness,
+    })
     const envMap = new THREE.TextureLoader().load('env-map.png')
     envMap.mapping = THREE.EquirectangularReflectionMapping
     this.sphereMaterial.envMap = envMap
+
+    // Apply texture if a set is configured
+    this.applyTexture(config.ballTextureSet)
 
     this.sphere = new THREE.Mesh(
       new THREE.SphereGeometry(this.radius, config.ballSegments, config.ballSegments),
@@ -42,10 +57,68 @@ class Ball {
     this.sphere.position.x = pos[0] - this.tableWidth / 2
     this.sphere.position.y = this.radius + Math.max(0, pos[2])
     this.sphere.position.z = pos[1] - this.tableHeight / 2
+
+    if (!this.rotationEnabled) return
+
+    // Accumulate rotation from previous trajectory segments
+    const circleTime = this.circle.time
+    if (this.lastCircleTime >= 0 && circleTime !== this.lastCircleTime) {
+      // Trajectory changed — snapshot the current rotation as the new base.
+      // The last renderAtTime call already applied the correct incremental rotation
+      // up to the previous frame, so we just carry that forward.
+      this.baseQuaternion.copy(this.sphere.quaternion)
+    }
+    this.lastCircleTime = circleTime
+
+    // Compute incremental rotation for the current segment
+    const dt = progress - circleTime
+    if (dt > 1e-9) {
+      const angTraj = this.circle.angularTrajectory
+      // Integrated angle: theta(dt) = alpha * dt^2/2 + omega0 * dt
+      const angleX = angTraj.alpha[0] * dt * dt * 0.5 + angTraj.omega0[0] * dt
+      const angleY = angTraj.alpha[1] * dt * dt * 0.5 + angTraj.omega0[1] * dt
+      const angleZ = angTraj.alpha[2] * dt * dt * 0.5 + angTraj.omega0[2] * dt
+
+      // Convert physics coords to Three.js coords:
+      // Physics X → Three.js X, Physics Y → Three.js -Z, Physics Z → Three.js Y
+      const incrementalQ = new THREE.Quaternion()
+      const euler = new THREE.Euler(angleX, angleZ, -angleY, 'XYZ')
+      incrementalQ.setFromEuler(euler)
+
+      this.sphere.quaternion.copy(this.baseQuaternion).multiply(incrementalQ)
+    } else {
+      this.sphere.quaternion.copy(this.baseQuaternion)
+    }
   }
 
   updateRoughness(roughness: number) {
     this.sphereMaterial.roughness = roughness
+  }
+
+  applyTexture(set: BallTextureSet) {
+    const texture = generateBallTexture(this.ballIndex, set)
+    if (texture) {
+      this.sphereMaterial.map = texture
+      this.sphereMaterial.color.set('#ffffff')
+    } else {
+      this.sphereMaterial.map = null
+      this.sphereMaterial.color.set(stringToRGB(this.circle.id))
+    }
+    this.sphereMaterial.needsUpdate = true
+  }
+
+  setRotationEnabled(enabled: boolean) {
+    this.rotationEnabled = enabled
+    if (!enabled) {
+      this.sphere.quaternion.identity()
+      this.baseQuaternion.identity()
+    }
+  }
+
+  resetRotation() {
+    this.baseQuaternion.identity()
+    this.sphere.quaternion.identity()
+    this.lastCircleTime = -1
   }
 }
 
@@ -59,16 +132,18 @@ export default class SimulationScene {
   private spotLight1: THREE.SpotLight
   private spotLight2: THREE.SpotLight
   private config: SimulationConfig
+  private currentTextureSet: BallTextureSet
 
   constructor(canvas: HTMLCanvasElement, circles: Circle[], config: SimulationConfig, rendererCanvas?: HTMLCanvasElement) {
     this.config = config
+    this.currentTextureSet = config.ballTextureSet
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(config.fov, window.innerWidth / window.innerHeight, 1, 10000)
     this.canvas2D = canvas
     this.canvasTexture = new THREE.Texture(this.canvas2D)
 
-    for (const circle of circles) {
-      const ball = new Ball(circle, config)
+    for (let i = 0; i < circles.length; i++) {
+      const ball = new Ball(circles[i], i, config)
       this.balls.push(ball)
       this.scene.add(ball.sphere)
     }
@@ -168,6 +243,19 @@ export default class SimulationScene {
     // Ball roughness
     for (const ball of this.balls) {
       ball.updateRoughness(config.ballRoughness)
+    }
+
+    // Texture set change (live, no restart needed)
+    if (config.ballTextureSet !== this.currentTextureSet) {
+      this.currentTextureSet = config.ballTextureSet
+      for (const ball of this.balls) {
+        ball.applyTexture(config.ballTextureSet)
+      }
+    }
+
+    // Rotation toggle
+    for (const ball of this.balls) {
+      ball.setRotationEnabled(config.ballRotationEnabled)
     }
   }
 
