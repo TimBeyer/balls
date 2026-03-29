@@ -8,6 +8,8 @@ import { createPoolPhysicsProfile, createSimple2DProfile } from './physics/physi
 import type { PhysicsProfile } from './physics/physics-profile'
 import type { PhysicsProfileName, PhysicsOverrides } from './config'
 import type { Scenario, BallSpec } from './scenarios'
+import type { TableConfig } from './table-config'
+import { createPoolTable, createSnookerTable } from './table-config'
 
 declare const self: DedicatedWorkerGlobalScope
 
@@ -67,6 +69,7 @@ let circles: Ball[] = []
 let time = 0
 let physicsConfig: PhysicsConfig = defaultPhysicsConfig
 let profile: PhysicsProfile = createPoolPhysicsProfile()
+let tableConfig: TableConfig | undefined
 
 // Respond to message from parent thread
 self.addEventListener('message', (event: MessageEvent) => {
@@ -91,6 +94,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       NUM_BALLS = request.payload.numBalls
       profile = createProfileByName(request.payload.physicsProfile)
       physicsConfig = applyPhysicsOverrides(defaultPhysicsConfig, request.payload.physicsOverrides)
+      tableConfig = request.payload.tableConfig
 
       console.time('initCircles')
       circles = generateCircles(NUM_BALLS, TABLE_WIDTH, TABLE_HEIGHT, Math.random, physicsConfig, profile)
@@ -126,6 +130,15 @@ self.addEventListener('message', (event: MessageEvent) => {
       physicsConfig = defaultPhysicsConfig
     }
 
+    // Resolve table config from scenario table type
+    if (scenario.tableType === 'pool') {
+      tableConfig = createPoolTable()
+    } else if (scenario.tableType === 'snooker') {
+      tableConfig = createSnookerTable()
+    } else {
+      tableConfig = undefined // sandbox mode — no pockets
+    }
+
     circles = createBallsFromScenario(scenario, physicsConfig, profile)
     NUM_BALLS = circles.length
     isInitialized = true
@@ -148,8 +161,9 @@ self.addEventListener('message', (event: MessageEvent) => {
     time = time + request.payload.time
     console.log(`Simulating ${NUM_BALLS} balls for ${request.payload.time / 1000} seconds`)
     console.time('simulate')
+    const simOptions = tableConfig ? { tableConfig } : undefined
     if (needsInitialValues) {
-      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig, profile)
+      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig, profile, simOptions)
       const initialValues = simulatedResults.shift()
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
@@ -161,7 +175,7 @@ self.addEventListener('message', (event: MessageEvent) => {
       console.timeEnd('simulate')
       self.postMessage(response)
     } else {
-      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig, profile)
+      const simulatedResults = simulate(TABLE_WIDTH, TABLE_HEIGHT, time, circles, physicsConfig, profile, simOptions)
       const response: WorkerSimulationResponse = {
         type: ResponseMessageType.SIMULATION_DATA,
         payload: {
