@@ -126,7 +126,16 @@ export default class Ball {
 
     this.position = evaluateTrajectory(this.trajectory, dt)
     this.velocity = evaluateTrajectoryVelocity(this.trajectory, dt)
-    this.angularVelocity = evaluateAngularVelocity(this.angularTrajectory, dt)
+    const omega = evaluateAngularVelocity(this.angularTrajectory, dt)
+    // Clamp angular velocity: friction deceleration must not reverse spin direction.
+    // The linear trajectory omega(dt) = alpha*dt + omega0 overshoots past zero when
+    // dt exceeds the zero-crossing time, but no event is scheduled for that crossing.
+    const o0 = this.angularTrajectory.omega0
+    for (let i = 0; i < 3; i++) {
+      if (o0[i] > 0 && omega[i] < 0) omega[i] = 0
+      else if (o0[i] < 0 && omega[i] > 0) omega[i] = 0
+    }
+    this.angularVelocity = omega
     this.time = time
 
     return this

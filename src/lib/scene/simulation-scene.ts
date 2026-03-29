@@ -82,12 +82,7 @@ class Ball {
     if (cappedDelta < 1e-9) return
 
     // Compute angular velocity from trajectory coefficients: omega(dt) = alpha*dt + omega0
-    // This gives smooth deceleration for Spinning, correct values for Sliding/Airborne,
-    // and zero for Stationary (alpha=[0,0,0], omega0=[0,0,0]).
-    // IMPORTANT: Clamp each component to prevent zero-crossing. The linear trajectory
-    // omega(dt) = alpha*dt + omega0 will reverse direction past the zero point, but the
-    // physics simulation schedules a state transition at that exact time. Between events,
-    // the visualization must not extrapolate past zero.
+    // Clamp to prevent zero-crossing (mirrors the clamp in Ball.advanceTime).
     let omegaX: number, omegaY: number, omegaZ: number
     if (this.circle.motionState === MotionState.Rolling) {
       // For Rolling, derive ωx/ωy from the interpolated velocity (rolling constraint)
