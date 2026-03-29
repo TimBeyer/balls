@@ -29,35 +29,32 @@ const AMERICAN_COLORS = [
   '#800000', // 15: maroon stripe
 ]
 
-// British pool: 0=cue, 1-7=red, 8=black, 9-15=yellow
-const BRITISH_RED = '#CC0000'
-const BRITISH_YELLOW = '#FFD700'
-const BRITISH_BLACK = '#1A1A1A'
-const BRITISH_CUE = '#F5F5F0'
+const BRITISH_COLORS = ['#F5F5F0', '#CC0000', '#1A1A1A', '#FFD700'] // cue, red, black, yellow
 
-// Snooker: 0=cue, 1-15=red, 16=yellow, 17=green, 18=brown, 19=blue, 20=pink, 21=black
-const SNOOKER_COLORS: Record<string, string> = {
-  cue: '#F5F5F0',
-  red: '#CC0000',
-  yellow: '#FFD700',
-  green: '#009944',
-  brown: '#8B4513',
-  blue: '#003DA5',
-  pink: '#FF69B4',
-  black: '#1A1A1A',
-}
+const SNOOKER_COLOR_ORDER = ['#F5F5F0', '#CC0000', '#FFD700', '#009944', '#8B4513', '#003DA5', '#FF69B4', '#1A1A1A']
 
 const TEX_SIZE = 512
 const textureCache = new Map<string, THREE.CanvasTexture>()
 
+interface RGB {
+  r: number
+  g: number
+  b: number
+}
+
+function parseHex(hex: string): RGB {
+  const n = parseInt(hex.slice(1), 16)
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff }
+}
+
 export function getTextureSetSize(set: BallTextureSet): number {
   switch (set) {
     case 'american':
-      return 16 // cue + 15 balls
+      return 16
     case 'british':
-      return 16 // cue + 7 red + 1 black + 7 yellow
+      return 16
     case 'snooker':
-      return 22 // cue + 15 reds + 6 colors
+      return 22
     case 'none':
       return 0
   }
@@ -80,13 +77,13 @@ export function generateBallTexture(index: number, set: BallTextureSet): THREE.C
 
   switch (set) {
     case 'american':
-      drawAmericanBall(ctx, wrappedIndex)
+      renderAmericanBall(ctx, wrappedIndex)
       break
     case 'british':
-      drawBritishBall(ctx, wrappedIndex)
+      renderSolidBall(ctx, getBritishColor(wrappedIndex))
       break
     case 'snooker':
-      drawSnookerBall(ctx, wrappedIndex)
+      renderSolidBall(ctx, getSnookerColor(wrappedIndex))
       break
   }
 
@@ -103,111 +100,131 @@ export function clearTextureCache(): void {
   textureCache.clear()
 }
 
-// --- American Pool ---
+// --- Color lookups ---
 
-function drawAmericanBall(ctx: CanvasRenderingContext2D, index: number): void {
-  const color = AMERICAN_COLORS[index]
+function getBritishColor(index: number): RGB {
+  if (index === 0) return parseHex(BRITISH_COLORS[0]) // cue
+  if (index <= 7) return parseHex(BRITISH_COLORS[1]) // red
+  if (index === 8) return parseHex(BRITISH_COLORS[2]) // black
+  return parseHex(BRITISH_COLORS[3]) // yellow
+}
+
+function getSnookerColor(index: number): RGB {
+  if (index === 0) return parseHex(SNOOKER_COLOR_ORDER[0]) // cue
+  if (index <= 15) return parseHex(SNOOKER_COLOR_ORDER[1]) // red
+  const colorIndex = ((index - 16) % 6) + 2
+  return parseHex(SNOOKER_COLOR_ORDER[colorIndex])
+}
+
+// --- Rendering ---
+// All rendering uses per-pixel equirectangular projection so features
+// (circles, stripes) appear undistorted on the sphere.
+//
+// Three.js SphereGeometry UV mapping:
+//   u ∈ [0,1] → longitude φ ∈ [0, 2π]   (seam at u=0 and u=1)
+//   v ∈ [0,1] → colatitude θ ∈ [0, π]   (north pole at v=0, south pole at v=1)
+//   latitude = π/2 − θ
+//
+// The number circle is placed at the texture center (u=0.5, v=0.5),
+// which maps to longitude π, latitude 0 (equator, opposite the seam).
+
+/** Angular radius of the number circle on the sphere (radians) */
+const NUMBER_CIRCLE_RAD = 0.40
+
+/** Half-angle of the stripe band measured from the equator (radians) */
+const STRIPE_HALF_ANGLE = 0.72
+
+/** Direction vector for the number circle center: lon=π, lat=0 → (−1, 0, 0) */
+const NUM_CENTER_X = -1
+const NUM_CENTER_Y = 0
+const NUM_CENTER_Z = 0
+
+const COS_NUMBER_CIRCLE = Math.cos(NUMBER_CIRCLE_RAD)
+
+function renderAmericanBall(ctx: CanvasRenderingContext2D, index: number): void {
+  const baseColor = parseHex(AMERICAN_COLORS[index])
   const isStripe = index >= 9
   const isCue = index === 0
+  const hasNumber = !isCue
 
-  if (isCue) {
-    // Cue ball: plain off-white with subtle shading
-    drawSolidBall(ctx, color)
-    return
+  const offWhite: RGB = { r: 245, g: 245, b: 240 }
+  const white: RGB = { r: 255, g: 255, b: 255 }
+
+  const imageData = ctx.createImageData(TEX_SIZE, TEX_SIZE)
+  const data = imageData.data
+
+  for (let py = 0; py < TEX_SIZE; py++) {
+    const v = (py + 0.5) / TEX_SIZE
+    const lat = (0.5 - v) * Math.PI // +π/2 at top, −π/2 at bottom
+    const cosLat = Math.cos(lat)
+    const sinLat = Math.sin(lat)
+
+    for (let px = 0; px < TEX_SIZE; px++) {
+      const u = (px + 0.5) / TEX_SIZE
+      const lon = u * 2 * Math.PI
+
+      // Determine base pixel color
+      let r: number, g: number, b: number
+      if (isStripe) {
+        if (Math.abs(lat) <= STRIPE_HALF_ANGLE) {
+          r = baseColor.r
+          g = baseColor.g
+          b = baseColor.b
+        } else {
+          r = offWhite.r
+          g = offWhite.g
+          b = offWhite.b
+        }
+      } else {
+        r = baseColor.r
+        g = baseColor.g
+        b = baseColor.b
+      }
+
+      // Number circle: angular distance on the sphere from circle center
+      if (hasNumber) {
+        const sx = cosLat * Math.cos(lon)
+        const sy = cosLat * Math.sin(lon)
+        const sz = sinLat
+        const dot = sx * NUM_CENTER_X + sy * NUM_CENTER_Y + sz * NUM_CENTER_Z
+        if (dot > COS_NUMBER_CIRCLE) {
+          r = white.r
+          g = white.g
+          b = white.b
+        }
+      }
+
+      const idx = (py * TEX_SIZE + px) * 4
+      data[idx] = r
+      data[idx + 1] = g
+      data[idx + 2] = b
+      data[idx + 3] = 255
+    }
   }
 
-  if (isStripe) {
-    // Stripe balls: white base with colored band in the middle
-    drawSolidBall(ctx, '#F5F5F0')
-    drawStripe(ctx, color)
-    drawNumberCircle(ctx, index)
-  } else {
-    // Solid balls: full color with number circle
-    drawSolidBall(ctx, color)
-    drawNumberCircle(ctx, index)
+  ctx.putImageData(imageData, 0, 0)
+
+  // Draw number text at the texture center.
+  // At the equator the equirectangular projection stretches horizontally
+  // by a factor of 2π/π = 2 compared to vertical, so we compress the
+  // text width by 0.5 to appear circular on the sphere.
+  if (hasNumber) {
+    const cx = TEX_SIZE / 2
+    const cy = TEX_SIZE / 2
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.scale(0.5, 1)
+    ctx.fillStyle = '#1A1A1A'
+    ctx.font = `bold ${TEX_SIZE * 0.14}px Arial, Helvetica, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(index), 0, TEX_SIZE * 0.005)
+    ctx.restore()
   }
 }
 
-function drawSolidBall(ctx: CanvasRenderingContext2D, color: string): void {
-  ctx.fillStyle = color
+function renderSolidBall(ctx: CanvasRenderingContext2D, color: RGB): void {
+  // Solid-color balls don't distort, so a simple fill is fine
+  ctx.fillStyle = `rgb(${color.r},${color.g},${color.b})`
   ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE)
-
-  // Add subtle gradient for depth
-  const gradient = ctx.createRadialGradient(
-    TEX_SIZE * 0.4,
-    TEX_SIZE * 0.35,
-    TEX_SIZE * 0.05,
-    TEX_SIZE * 0.5,
-    TEX_SIZE * 0.5,
-    TEX_SIZE * 0.55,
-  )
-  gradient.addColorStop(0, 'rgba(255,255,255,0.15)')
-  gradient.addColorStop(1, 'rgba(0,0,0,0)')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE)
-}
-
-function drawStripe(ctx: CanvasRenderingContext2D, color: string): void {
-  // Draw a horizontal band covering the middle ~45% of the texture
-  const bandTop = TEX_SIZE * 0.275
-  const bandBottom = TEX_SIZE * 0.725
-  ctx.fillStyle = color
-  ctx.fillRect(0, bandTop, TEX_SIZE, bandBottom - bandTop)
-}
-
-function drawNumberCircle(ctx: CanvasRenderingContext2D, number: number): void {
-  const cx = TEX_SIZE / 2
-  const cy = TEX_SIZE / 2
-  const r = TEX_SIZE * 0.12
-
-  // White circle background
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.fillStyle = '#FFFFFF'
-  ctx.fill()
-
-  // Thin border
-  ctx.lineWidth = 1.5
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)'
-  ctx.stroke()
-
-  // Number text
-  ctx.fillStyle = '#1A1A1A'
-  ctx.font = `bold ${TEX_SIZE * 0.13}px Arial, Helvetica, sans-serif`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(String(number), cx, cy + TEX_SIZE * 0.005)
-}
-
-// --- British Pool ---
-
-function drawBritishBall(ctx: CanvasRenderingContext2D, index: number): void {
-  let color: string
-  if (index === 0) {
-    color = BRITISH_CUE
-  } else if (index <= 7) {
-    color = BRITISH_RED
-  } else if (index === 8) {
-    color = BRITISH_BLACK
-  } else {
-    color = BRITISH_YELLOW
-  }
-  drawSolidBall(ctx, color)
-}
-
-// --- Snooker ---
-
-function drawSnookerBall(ctx: CanvasRenderingContext2D, index: number): void {
-  let color: string
-  if (index === 0) {
-    color = SNOOKER_COLORS.cue
-  } else if (index <= 15) {
-    color = SNOOKER_COLORS.red
-  } else {
-    // Color balls in order: yellow, green, brown, blue, pink, black
-    const colorNames = ['yellow', 'green', 'brown', 'blue', 'pink', 'black']
-    const colorIndex = index - 16
-    color = SNOOKER_COLORS[colorNames[colorIndex % colorNames.length]]
-  }
-  drawSolidBall(ctx, color)
 }
