@@ -13,6 +13,8 @@ import { simulate, ReplayData, EventType, CircleSnapshot } from '../simulation'
 import { createPoolPhysicsProfile, createSimple2DProfile } from '../physics/physics-profile'
 import type { PhysicsProfile } from '../physics/physics-profile'
 import { MotionState } from '../motion-state'
+import { Han2005CushionResolver } from '../physics/collision/han2005-cushion-resolver'
+import { Cushion } from '../collision'
 import type { Scenario, BallSpec } from '../scenarios'
 import { generateCircles } from '../generate-circles'
 
@@ -267,6 +269,71 @@ export function assertEnergyNonIncreasing(replay: ReplayData[], mass: number, to
  * Compares momentum before and after within the collision event's snapshots.
  * tolerance: absolute tolerance in momentum units (default 1.0).
  */
+export function computeAngVelMag(snap: CircleSnapshot): number {
+  return Math.sqrt(snap.angularVelocity[0] ** 2 + snap.angularVelocity[1] ** 2 + snap.angularVelocity[2] ** 2)
+}
+
+// ─── Direct resolver helpers ────────────────────────────────────────────────
+
+const TABLE_W = 2540
+const TABLE_H = 1270
+
+export interface Han2005Result {
+  preVelocity: Vector3D
+  preAngularVelocity: Vector3D
+  postVelocity: Vector3D
+  postAngularVelocity: Vector3D
+  postSpeed: number
+  postAngVelMag: number
+}
+
+/**
+ * Run the Han 2005 cushion resolver directly on a ball spec, returning pre/post state.
+ * Places the ball at the cushion boundary for the specified wall.
+ */
+export function resolveHan2005Direct(
+  spec: BallSpec,
+  cushion: Cushion,
+  config: PhysicsConfig = defaultPhysicsConfig,
+): Han2005Result {
+  const R = defaultBallParams.radius
+  // Override position to be at the wall
+  const positioned = { ...spec }
+  switch (cushion) {
+    case Cushion.East:
+      positioned.x = TABLE_W - R
+      break
+    case Cushion.West:
+      positioned.x = R
+      break
+    case Cushion.North:
+      positioned.y = TABLE_H - R
+      break
+    case Cushion.South:
+      positioned.y = R
+      break
+  }
+  const ball = createPoolBall(positioned, config)
+  const preVelocity: Vector3D = [...ball.velocity]
+  const preAngularVelocity: Vector3D = [...ball.angularVelocity]
+
+  const resolver = new Han2005CushionResolver()
+  resolver.resolve(ball, cushion, TABLE_W, TABLE_H, config)
+
+  return {
+    preVelocity,
+    preAngularVelocity,
+    postVelocity: [...ball.velocity],
+    postAngularVelocity: [...ball.angularVelocity],
+    postSpeed: Math.sqrt(ball.velocity[0] ** 2 + ball.velocity[1] ** 2),
+    postAngVelMag: Math.sqrt(
+      ball.angularVelocity[0] ** 2 + ball.angularVelocity[1] ** 2 + ball.angularVelocity[2] ** 2,
+    ),
+  }
+}
+
+export { Cushion }
+
 export function assertMomentumConservedAtCollisions(replay: ReplayData[], mass: number, tolerance = 1.0): void {
   // We compare momentum at consecutive collision events (the snapshots represent post-collision state).
   // Since between collisions only friction acts (internal), momentum should be approximately conserved

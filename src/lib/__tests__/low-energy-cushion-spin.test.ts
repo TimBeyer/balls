@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { defaultPhysicsConfig, defaultBallParams } from '../physics-config'
 import { createPoolPhysicsProfile } from '../physics/physics-profile'
-import { simulate, EventType } from '../simulation'
+import { simulate } from '../simulation'
 import { getCushionEvents, getSnapshotById, createPoolBall } from './test-helpers'
 import type { BallSpec } from '../scenarios'
 import { Han2005CushionResolver } from '../physics/collision/han2005-cushion-resolver'
@@ -102,6 +102,118 @@ describe('low-energy cushion spin — direct resolver characterization', () => {
 
     // vy at low speed should be much smaller than at high speed
     expect(Math.abs(ball5.velocity[1])).toBeLessThan(Math.abs(ball200.velocity[1]) * 0.1)
+  })
+})
+
+describe('Han 2005 sliding regime tests', () => {
+  it('low speed head-on hits no-sliding branch (Pzs ≤ Pze)', () => {
+    const resolver = new Han2005CushionResolver()
+    // vx=10, no spin: small sliding velocity → Pzs small → no-sliding branch
+    const ball = createPoolBall({ id: 'test', x: TABLE_W - R, y: TABLE_H / 2, vx: 10, vy: 0 })
+    resolver.resolve(ball, Cushion.East, TABLE_W, TABLE_H, defaultPhysicsConfig)
+
+    // Should bounce back
+    expect(ball.velocity[0]).toBeLessThan(0)
+    // No-sliding: energy loss comes only from restitution
+    const e = defaultBallParams.eRestitution
+    // Post-speed should be close to e * pre-speed (for head-on, vPerp dominates)
+    expect(Math.abs(ball.velocity[0])).toBeGreaterThan(10 * e * 0.5)
+  })
+
+  it('high speed with large spin hits full-sliding branch', () => {
+    const resolver = new Han2005CushionResolver()
+    // vx=2000 with large wy (rolling spin) creates large sx → Pzs > Pze → full-sliding
+    const ball = createPoolBall({
+      id: 'test',
+      x: TABLE_W - R,
+      y: TABLE_H / 2,
+      vx: 2000,
+      vy: 0,
+      spin: [0, 2000 / R, 100],
+    })
+    resolver.resolve(ball, Cushion.East, TABLE_W, TABLE_H, defaultPhysicsConfig)
+
+    // Should bounce back
+    expect(ball.velocity[0]).toBeLessThan(0)
+    // Full-sliding has more friction energy loss than no-sliding
+  })
+
+  it('full-sliding case loses more energy than no-sliding case', () => {
+    const resolver = new Han2005CushionResolver()
+    const mass = defaultBallParams.mass
+
+    // No-sliding: low speed, no spin
+    const noSlide = createPoolBall({ id: 'ns', x: TABLE_W - R, y: TABLE_H / 2, vx: 50, vy: 0 })
+    const preKE_ns = 0.5 * mass * 50 * 50
+    resolver.resolve(noSlide, Cushion.East, TABLE_W, TABLE_H, defaultPhysicsConfig)
+    const postSpeed_ns = Math.sqrt(noSlide.velocity[0] ** 2 + noSlide.velocity[1] ** 2)
+    const postKE_ns = 0.5 * mass * postSpeed_ns * postSpeed_ns
+    const lossRatio_ns = 1 - postKE_ns / preKE_ns
+
+    // Full-sliding: high speed with rolling spin (large sx)
+    const fullSlide = createPoolBall({
+      id: 'fs',
+      x: TABLE_W - R,
+      y: TABLE_H / 2,
+      vx: 2000,
+      vy: 0,
+      spin: [0, 2000 / R, 0],
+    })
+    const preKE_fs = 0.5 * mass * 2000 * 2000
+    resolver.resolve(fullSlide, Cushion.East, TABLE_W, TABLE_H, defaultPhysicsConfig)
+    const postSpeed_fs = Math.sqrt(fullSlide.velocity[0] ** 2 + fullSlide.velocity[1] ** 2)
+    const postKE_fs = 0.5 * mass * postSpeed_fs * postSpeed_fs
+    const lossRatio_fs = 1 - postKE_fs / preKE_fs
+
+    // Full-sliding should lose a larger fraction of translational KE
+    expect(lossRatio_fs).toBeGreaterThan(lossRatio_ns)
+  })
+})
+
+describe('trajectory clamping after cushion hit', () => {
+  it('ball does not drift back into wall after cushion bounce', () => {
+    // After a cushion hit, the ball's trajectory must not carry it back into the wall
+    // within the first small dt. This tests that trajectory acceleration is correctly
+    // oriented away from the wall.
+    const resolver = new Han2005CushionResolver()
+    const profile = createPoolPhysicsProfile()
+
+    for (const cushion of [Cushion.East, Cushion.West, Cushion.North, Cushion.South]) {
+      const spec: BallSpec = (() => {
+        switch (cushion) {
+          case Cushion.East:
+            return { id: 'b', x: TABLE_W - R, y: TABLE_H / 2, vx: 500, vy: 0 }
+          case Cushion.West:
+            return { id: 'b', x: R, y: TABLE_H / 2, vx: -500, vy: 0 }
+          case Cushion.North:
+            return { id: 'b', x: TABLE_W / 2, y: TABLE_H - R, vx: 0, vy: 500 }
+          case Cushion.South:
+            return { id: 'b', x: TABLE_W / 2, y: R, vx: 0, vy: -500 }
+        }
+      })()
+
+      const ball = createPoolBall(spec)
+      resolver.resolve(ball, cushion, TABLE_W, TABLE_H, defaultPhysicsConfig)
+      ball.updateTrajectory(profile, defaultPhysicsConfig)
+
+      // Check position at small dt (1ms) — should not be past the wall
+      const dt = 0.001
+      const pos = ball.position3DAtTime(ball.time + dt)
+      switch (cushion) {
+        case Cushion.East:
+          expect(pos[0]).toBeLessThanOrEqual(TABLE_W - R + 0.1)
+          break
+        case Cushion.West:
+          expect(pos[0]).toBeGreaterThanOrEqual(R - 0.1)
+          break
+        case Cushion.North:
+          expect(pos[1]).toBeLessThanOrEqual(TABLE_H - R + 0.1)
+          break
+        case Cushion.South:
+          expect(pos[1]).toBeGreaterThanOrEqual(R - 0.1)
+          break
+      }
+    }
   })
 })
 

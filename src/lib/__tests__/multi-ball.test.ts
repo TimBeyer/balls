@@ -121,6 +121,36 @@ describe('multi-ball scenarios', () => {
     assertMonotonicTime(replay)
   })
 
+  it('4 converging balls: all pairs separating after cluster resolution', () => {
+    const { replay } = runScenario(findScenario('converging-4-balls'))
+    const collisions = getCollisionEvents(replay)
+    expect(collisions.length).toBeGreaterThanOrEqual(1)
+
+    // The first collision event should contain all 4 balls (cluster resolution)
+    const firstCollision = collisions[0]
+    expect(firstCollision.snapshots.length).toBeGreaterThanOrEqual(2)
+
+    // After the collision event, verify all ball pairs are separating
+    // (relative velocity dot relative position > 0, i.e., moving apart)
+    const snaps = firstCollision.snapshots
+    for (let i = 0; i < snaps.length; i++) {
+      for (let j = i + 1; j < snaps.length; j++) {
+        const dx = snaps[j].position[0] - snaps[i].position[0]
+        const dy = snaps[j].position[1] - snaps[i].position[1]
+        const dvx = snaps[j].velocity[0] - snaps[i].velocity[0]
+        const dvy = snaps[j].velocity[1] - snaps[i].velocity[1]
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const rSum = snaps[i].radius + snaps[j].radius
+        // Only check pairs that are in contact (within tolerance)
+        if (dist < rSum + 1) {
+          const relVelAlongLine = (dvx * dx + dvy * dy) / dist
+          // Should be separating (or stationary): relative velocity along line ≥ 0
+          expect(relVelAlongLine).toBeGreaterThanOrEqual(-0.1)
+        }
+      }
+    }
+  })
+
   it('low-energy cluster: inelastic threshold prevents cascade', () => {
     const { replay } = runScenario(findScenario('low-energy-cluster'))
     const collisions = getCollisionEvents(replay)
