@@ -20,9 +20,8 @@ class Ball {
   private ballIndex: number
   private rotationEnabled: boolean
 
-  // Rotation tracking: accumulate rotation across trajectory segments
-  private baseQuaternion = new THREE.Quaternion()
-  private lastCircleTime = -1
+  // Rotation tracking: per-frame incremental rotation
+  private lastProgress = -1
 
   constructor(circle: Circle, index: number, config: SimulationConfig) {
     this.circle = circle
@@ -60,34 +59,43 @@ class Ball {
 
     if (!this.rotationEnabled) return
 
-    // Accumulate rotation from previous trajectory segments
-    const circleTime = this.circle.time
-    if (this.lastCircleTime >= 0 && circleTime !== this.lastCircleTime) {
-      // Trajectory changed — snapshot the current rotation as the new base.
-      // The last renderAtTime call already applied the correct incremental rotation
-      // up to the previous frame, so we just carry that forward.
-      this.baseQuaternion.copy(this.sphere.quaternion)
+    // Per-frame incremental rotation using the ball's current angular velocity.
+    // We use angularVelocity (synced from event snapshots) rather than angularTrajectory
+    // (which is not sent to the main thread).
+    if (this.lastProgress < 0 || progress < this.lastProgress) {
+      // First frame or time went backwards (seek) — just record, don't rotate
+      this.lastProgress = progress
+      return
     }
-    this.lastCircleTime = circleTime
 
-    // Compute incremental rotation for the current segment
-    const dt = progress - circleTime
-    if (dt > 1e-9) {
-      const angTraj = this.circle.angularTrajectory
-      // Integrated angle: theta(dt) = alpha * dt^2/2 + omega0 * dt
-      const angleX = angTraj.alpha[0] * dt * dt * 0.5 + angTraj.omega0[0] * dt
-      const angleY = angTraj.alpha[1] * dt * dt * 0.5 + angTraj.omega0[1] * dt
-      const angleZ = angTraj.alpha[2] * dt * dt * 0.5 + angTraj.omega0[2] * dt
+    const frameDelta = progress - this.lastProgress
+    this.lastProgress = progress
 
-      // Convert physics coords to Three.js coords:
-      // Physics X → Three.js X, Physics Y → Three.js -Z, Physics Z → Three.js Y
-      const incrementalQ = new THREE.Quaternion()
-      const euler = new THREE.Euler(angleX, angleZ, -angleY, 'XYZ')
-      incrementalQ.setFromEuler(euler)
+    // Cap frame delta to avoid huge rotations after pauses or event catch-up
+    const cappedDelta = Math.min(frameDelta, 0.1)
+    if (cappedDelta < 1e-9) return
 
-      this.sphere.quaternion.copy(this.baseQuaternion).multiply(incrementalQ)
-    } else {
-      this.sphere.quaternion.copy(this.baseQuaternion)
+    const omega = this.circle.angularVelocity
+    // Skip if no angular velocity
+    if (omega[0] === 0 && omega[1] === 0 && omega[2] === 0) return
+
+    // Small rotation angle = omega * dt
+    const rx = omega[0] * cappedDelta
+    const ry = omega[1] * cappedDelta
+    const rz = omega[2] * cappedDelta
+
+    // Convert physics coords to Three.js coords:
+    // Physics (X, Y, Z) position maps to Three.js (X, Z, Y)
+    // Same mapping for angular velocity axes
+    const threeRX = rx
+    const threeRY = rz
+    const threeRZ = ry
+
+    const angle = Math.sqrt(threeRX * threeRX + threeRY * threeRY + threeRZ * threeRZ)
+    if (angle > 1e-9) {
+      const axis = new THREE.Vector3(threeRX / angle, threeRY / angle, threeRZ / angle)
+      const deltaQ = new THREE.Quaternion().setFromAxisAngle(axis, angle)
+      this.sphere.quaternion.premultiply(deltaQ)
     }
   }
 
@@ -111,14 +119,12 @@ class Ball {
     this.rotationEnabled = enabled
     if (!enabled) {
       this.sphere.quaternion.identity()
-      this.baseQuaternion.identity()
     }
   }
 
   resetRotation() {
-    this.baseQuaternion.identity()
     this.sphere.quaternion.identity()
-    this.lastCircleTime = -1
+    this.lastProgress = -1
   }
 }
 
