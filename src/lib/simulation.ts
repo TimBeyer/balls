@@ -1,13 +1,24 @@
-import { Cushion, CushionCollision, CollisionFinder } from './collision'
-import Vector2D from './vector2d'
-import Circle from './circle'
+import { Cushion, CushionCollision, CollisionFinder, StateTransitionEvent } from './collision'
+import type Vector2D from './vector2d'
+import type Ball from './ball'
+import { MotionState } from './motion-state'
+import { PhysicsConfig, defaultPhysicsConfig } from './physics-config'
+import type { PhysicsProfile } from './physics/physics-profile'
+import { createPoolPhysicsProfile } from './physics/physics-profile'
+import type Vector3D from './vector3d'
+import type { Han2005CushionResolver } from './physics/collision/han2005-cushion-resolver'
+import { solveContactCluster } from './physics/collision/contact-cluster-solver'
 
 export interface CircleSnapshot {
   id: string
   position: Vector2D
   velocity: Vector2D
+  angularVelocity: Vector3D
+  motionState: MotionState
   radius: number
   time: number
+  /** Quadratic acceleration coefficients for interpolation between events */
+  trajectoryA: Vector2D
 }
 
 export interface ReplayData {
@@ -21,135 +32,334 @@ export interface ReplayData {
 export enum EventType {
   CircleCollision = 'CIRCLE_COLLISION',
   CushionCollision = 'CUSHION_COLLISION',
+  StateTransition = 'STATE_TRANSITION',
   StateUpdate = 'STATE_UPDATE',
 }
 
+export interface SimulateOptions {
+  /** Enable runtime invariant assertions for debugging. */
+  debug?: boolean
+}
+
+function snapshotBall(ball: Ball): CircleSnapshot {
+  return {
+    id: ball.id,
+    position: [ball.position[0], ball.position[1]],
+    velocity: [ball.velocity[0], ball.velocity[1]],
+    angularVelocity: [ball.angularVelocity[0], ball.angularVelocity[1], ball.angularVelocity[2]],
+    motionState: ball.motionState,
+    radius: ball.radius,
+    time: ball.time,
+    trajectoryA: [ball.trajectory.a[0], ball.trajectory.a[1]],
+  }
+}
+
 /**
+ * Runtime invariant check — asserts ball state is consistent.
+ * Only called when debug mode is enabled.
+ */
+function assertBallInvariants(
+  ball: Ball,
+  tableWidth: number,
+  tableHeight: number,
+  context: string,
+): void {
+  const R = ball.radius
+  const margin = 2 // mm tolerance
+
+  // No NaN/Infinity
+  if (
+    !Number.isFinite(ball.position[0]) ||
+    !Number.isFinite(ball.position[1]) ||
+    !Number.isFinite(ball.velocity[0]) ||
+    !Number.isFinite(ball.velocity[1])
+  ) {
+    throw new Error(`[${context}] Ball ${ball.id.slice(0, 8)} has NaN/Infinity in position or velocity`)
+  }
+
+  // Position in bounds (skip airborne balls)
+  if (ball.motionState !== MotionState.Airborne) {
+    if (
+      ball.position[0] < R - margin ||
+      ball.position[0] > tableWidth - R + margin ||
+      ball.position[1] < R - margin ||
+      ball.position[1] > tableHeight - R + margin
+    ) {
+      throw new Error(
+        `[${context}] Ball ${ball.id.slice(0, 8)} out of bounds: ` +
+          `pos=(${ball.position[0].toFixed(2)}, ${ball.position[1].toFixed(2)}), ` +
+          `bounds=[${R}, ${(tableWidth - R).toFixed(0)}] x [${R}, ${(tableHeight - R).toFixed(0)}]`,
+      )
+    }
+  }
+
+  // Trajectory.c matches position
+  const dc =
+    Math.abs(ball.trajectory.c[0] - ball.position[0]) + Math.abs(ball.trajectory.c[1] - ball.position[1])
+  if (dc > 0.01) {
+    throw new Error(
+      `[${context}] Ball ${ball.id.slice(0, 8)} trajectory.c mismatch: ` +
+        `pos=(${ball.position[0].toFixed(4)}, ${ball.position[1].toFixed(4)}) ` +
+        `traj.c=(${ball.trajectory.c[0].toFixed(4)}, ${ball.trajectory.c[1].toFixed(4)}) delta=${dc.toFixed(6)}`,
+    )
+  }
+}
+
+function assertAllBalls(
+  circles: Ball[],
+  tableWidth: number,
+  tableHeight: number,
+  context: string,
+): void {
+  for (const c of circles) {
+    assertBallInvariants(c, tableWidth, tableHeight, context)
+  }
+}
+
+/**
+ * Core event-driven simulation loop.
+ *
+ * This is a thin coordinator — all physics decisions are delegated to the PhysicsProfile:
+ * - Collision detection via profile.ballBallDetector / profile.cushionDetector
+ * - Collision resolution via profile.ballCollisionResolver / profile.cushionCollisionResolver
+ * - State transitions via profile.motionModels[state].applyTransition()
+ * - Trajectory computation via profile.motionModels[state].computeTrajectory()
  *
  * @param time the total timespan (in seconds) to simulate
  */
-export function simulate(tableWidth: number, tableHeight: number, time: number, circles: Circle[]) {
+export function simulate(
+  tableWidth: number,
+  tableHeight: number,
+  time: number,
+  circles: Ball[],
+  physicsConfig: PhysicsConfig = defaultPhysicsConfig,
+  profile: PhysicsProfile = createPoolPhysicsProfile(),
+  options?: SimulateOptions,
+) {
+  const debug = options?.debug ?? false
   let currentTime = 0
   const replay: ReplayData[] = []
+
+  // Ensure all balls have up-to-date trajectories via the profile
+  for (const ball of circles) {
+    ball.updateTrajectory(profile, physicsConfig)
+  }
 
   // initial snapshot
   replay.push({
     time: 0,
     type: EventType.StateUpdate,
-    snapshots: circles.map((circle) => {
-      return {
-        id: circle.id,
-        position: [circle.position[0], circle.position[1]],
-        velocity: [circle.velocity[0], circle.velocity[1]],
-        radius: circle.radius,
-        time: circle.time,
-      } as CircleSnapshot
-    }),
+    snapshots: circles.map(snapshotBall),
   })
 
-  const collisionFinder = new CollisionFinder(tableWidth, tableHeight, circles)
+  const collisionFinder = new CollisionFinder(tableWidth, tableHeight, circles, physicsConfig, profile)
 
-  while (currentTime < time) {
-    const collision = collisionFinder.pop()
+  // Check if all balls are stationary
+  const allStationary = () => circles.every((b) => b.motionState === MotionState.Stationary)
 
-    // Only advance circles involved in this collision.
-    // Collision detection already handles circles at different times via positionAtTime(),
-    // so non-colliding circles can stay at their last-updated time.
-    for (const circle of collision.circles) {
-      circle.advanceTime(collision.time)
+  // Pair collision rate tracker: detects Zeno cascades where external forces
+  // keep pushing the same pair back together. Three tiers:
+  //   1-BUDGET: normal physics (capped progressive restitution)
+  //   BUDGET+1 to 2*BUDGET: force fully inelastic
+  //   >2*BUDGET: suppress pair (skip detection in recompute until window resets)
+  const pairCollisionCounts = new Map<string, { count: number; windowStart: number }>()
+  const PAIR_BUDGET = 30
+  const PAIR_WINDOW = 0.2 // seconds
+  // Suppressed pairs: these pairs are excluded from ball-ball detection during
+  // recompute() until the time window expires. Stored as "id1\0id2" where id1 < id2.
+  const suppressedPairs = new Set<string>()
+
+  function getPairKey(a: string, b: string): string {
+    return a < b ? a + '\0' + b : b + '\0' + a
+  }
+
+  /** Returns 0 = normal, 1 = force inelastic, 2 = suppress pair */
+  function checkPairBudget(a: string, b: string, t: number): number {
+    const key = getPairKey(a, b)
+    const entry = pairCollisionCounts.get(key)
+    if (!entry || t - entry.windowStart > PAIR_WINDOW) {
+      // Window reset — unsuppress the pair
+      suppressedPairs.delete(key)
+      pairCollisionCounts.set(key, { count: 1, windowStart: t })
+      return 0
+    }
+    entry.count++
+    if (entry.count > PAIR_BUDGET * 2) {
+      suppressedPairs.add(key)
+      return 2
+    }
+    if (entry.count > PAIR_BUDGET) return 1
+    return 0
+  }
+
+  /** Build an exclude set for recompute: all balls suppressed with the given ball */
+  function getSuppressedNeighbors(ballId: string): Set<string> | undefined {
+    let result: Set<string> | undefined
+    for (const key of suppressedPairs) {
+      const sep = key.indexOf('\0')
+      const id1 = key.substring(0, sep)
+      const id2 = key.substring(sep + 1)
+      if (id1 === ballId || id2 === ballId) {
+        if (!result) result = new Set()
+        result.add(id1 === ballId ? id2 : id1)
+      }
+    }
+    return result
+  }
+
+  while (currentTime < time && !allStationary()) {
+    const event = collisionFinder.pop()
+
+    if (event.time > time) break
+
+    if (event.type === 'StateTransition') {
+      const stateEvent = event as StateTransitionEvent
+      const ball = stateEvent.circles[0]
+
+      // Advance ball to transition time
+      ball.advanceTime(stateEvent.time)
+
+      // Delegate state transition to the motion model
+      const model = profile.motionModels.get(stateEvent.fromState as MotionState)
+      if (model) {
+        model.applyTransition(ball, stateEvent.toState as MotionState, physicsConfig)
+      }
+      ball.motionState = stateEvent.toState as MotionState
+
+      // Clamp position to within bounds — airborne balls may have flown past the
+      // boundary, and contact resolution can push balls slightly past walls.
+      ball.clampToBounds(tableWidth, tableHeight)
+
+      ball.updateTrajectory(profile, physicsConfig)
+      currentTime = stateEvent.time
+
+      if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after StateTransition at t=${currentTime}`)
+
+      replay.push({
+        time: currentTime,
+        type: EventType.StateTransition,
+        snapshots: [snapshotBall(ball)],
+      })
+
+      collisionFinder.recompute(ball.id, getSuppressedNeighbors(ball.id))
+      continue
     }
 
-    if (collision.type === 'Cushion') {
-      const cc = collision as CushionCollision
-      const circle = cc.circles[0]
-      if (cc.cushion === Cushion.North || cc.cushion === Cushion.South) {
-        circle.velocity[1] = -circle.velocity[1]
-      } else if (cc.cushion === Cushion.East || cc.cushion === Cushion.West) {
-        circle.velocity[0] = -circle.velocity[0]
+    // Collision event — advance and clamp (trajectory evaluation can overshoot walls)
+    for (const circle of event.circles) {
+      circle.advanceTime(event.time)
+      circle.clampToBounds(tableWidth, tableHeight)
+    }
+
+    if (event.type === 'Cushion') {
+      const cc = event as CushionCollision
+      const ball = cc.circles[0]
+
+      // Delegate to the cushion collision resolver
+      profile.cushionCollisionResolver.resolve(ball, cc.cushion, tableWidth, tableHeight, physicsConfig)
+
+      ball.updateTrajectory(profile, physicsConfig)
+
+      // Post-collision trajectory clamping (if resolver supports it)
+      const resolver = profile.cushionCollisionResolver as Han2005CushionResolver
+      if (resolver.clampTrajectory) {
+        resolver.clampTrajectory(ball, cc.cushion)
       }
 
-      // To prevent floating point rounding errors from interfering
-      // We force the position to be accurate instead of computing it
-      switch (cc.cushion) {
-        case Cushion.North:
-          circle.position[1] = tableHeight - circle.radius
-          break
-        case Cushion.East:
-          circle.position[0] = tableWidth - circle.radius
-          break
-        case Cushion.South:
-          circle.position[1] = circle.radius
-          break
-        case Cushion.West:
-          circle.position[0] = circle.radius
-          break
+      // Corner bounce: after resolving one cushion, the ball may be at another wall
+      // boundary with velocity into it (e.g., hitting North while at East boundary).
+      // The quadratic cushion detector can't detect t=0 collisions, so handle immediately.
+      const R = ball.radius
+      if (ball.velocity[0] > 0 && ball.position[0] >= tableWidth - R - 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.East, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.East)
+      } else if (ball.velocity[0] < 0 && ball.position[0] <= R + 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.West, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.West)
+      }
+      if (ball.velocity[1] > 0 && ball.position[1] >= tableHeight - R - 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.North, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.North)
+      } else if (ball.velocity[1] < 0 && ball.position[1] <= R + 0.01) {
+        profile.cushionCollisionResolver.resolve(ball, Cushion.South, tableWidth, tableHeight, physicsConfig)
+        ball.updateTrajectory(profile, physicsConfig)
+        if (resolver.clampTrajectory) resolver.clampTrajectory(ball, Cushion.South)
       }
     } else {
-      const c1 = collision.circles[0]
-      const c2 = collision.circles[1]
-      const [vx1, vy1] = c1.velocity
-      const [vx2, vy2] = c2.velocity
+      // Ball-ball collision — solve full contact cluster simultaneously
+      const c1 = event.circles[0]
+      const c2 = event.circles[1]
 
-      const [x1, y1] = c1.position
-      const [x2, y2] = c2.position
-      let dx = x1 - x2,
-        dy = y1 - y2
+      // Pair rate limiting safety net: suppress truly pathological pairs
+      const pairTier = checkPairBudget(c1.id, c2.id, event.time)
 
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      dx = dx / dist
-      dy = dy / dist
+      if (pairTier === 2) {
+        // Way over budget — suppress pair globally until window expires
+        c1.updateTrajectory(profile, physicsConfig)
+        c2.updateTrajectory(profile, physicsConfig)
+        c1.clampToBounds(tableWidth, tableHeight)
+        c2.clampToBounds(tableWidth, tableHeight)
+        c1.syncTrajectoryOrigin()
+        c2.syncTrajectoryOrigin()
+        currentTime = event.time
 
-      const v1dot = dx * vx1 + dy * vy1
+        collisionFinder.recompute(c1.id, getSuppressedNeighbors(c1.id))
+        collisionFinder.recompute(c2.id, getSuppressedNeighbors(c2.id))
+        continue
+      }
 
-      const vx1Collide = dx * v1dot,
-        vy1Collide = dy * v1dot
-      const vx1Remainder = vx1 - vx1Collide,
-        vy1Remainder = vy1 - vy1Collide
+      // Solve the full contact cluster (primary pair + all touching neighbors)
+      const clusterResult = solveContactCluster(
+        [c1, c2],
+        collisionFinder.spatialGrid,
+        profile,
+        physicsConfig,
+        event.time,
+        tableWidth,
+        tableHeight,
+      )
 
-      const v2dot = dx * vx2 + dy * vy2
-      const vx2Collide = dx * v2dot,
-        vy2Collide = dy * v2dot
+      currentTime = event.time
 
-      const vx2Remainder = vx2 - vx2Collide,
-        vy2Remainder = vy2 - vy2Collide
+      // Record all collision events from the cluster solve
+      for (const replayEvent of clusterResult.replayEvents) {
+        replay.push(replayEvent)
+      }
 
-      const v1Length = Math.sqrt(vx1Collide * vx1Collide + vy1Collide * vy1Collide) * Math.sign(v1dot)
-      const v2Length = Math.sqrt(vx2Collide * vx2Collide + vy2Collide * vy2Collide) * Math.sign(v2dot)
+      // Recompute for ALL affected balls
+      for (const ball of clusterResult.affectedBalls) {
+        collisionFinder.recompute(ball.id, getSuppressedNeighbors(ball.id))
+      }
 
-      const commonVelocity = (2 * (c1.mass * v1Length + c2.mass * v2Length)) / (c1.mass + c2.mass)
-      const v1LengthAfterCollision = commonVelocity - v1Length
-      const v2LengthAfterCollision = commonVelocity - v2Length
-
-      const c1Scale = v1LengthAfterCollision / v1Length
-      const c2Scale = v2LengthAfterCollision / v2Length
-
-      c1.velocity[0] = vx1Collide * c1Scale + vx1Remainder
-      c1.velocity[1] = vy1Collide * c1Scale + vy1Remainder
-      c2.velocity[0] = vx2Collide * c2Scale + vx2Remainder
-      c2.velocity[1] = vy2Collide * c2Scale + vy2Remainder
+      if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after CircleCollision at t=${currentTime}`)
+      continue
     }
 
-    currentTime = collision.time
+    // Clamp non-airborne balls that may have drifted past table bounds while airborne
+    for (const circle of event.circles) {
+      if (circle.motionState !== MotionState.Airborne) {
+        circle.clampToBounds(tableWidth, tableHeight)
+      }
+    }
+
+    currentTime = event.time
+
+    if (debug) assertAllBalls(circles, tableWidth, tableHeight, `after Cushion at t=${currentTime}`)
 
     const replayData: ReplayData = {
       time: currentTime,
-      type: collision.type === 'Cushion' ? EventType.CushionCollision : EventType.CircleCollision,
-      cushionType: (collision as CushionCollision).cushion,
-      snapshots: collision.circles.map((circle) => {
-        return {
-          id: circle.id,
-          position: [circle.position[0], circle.position[1]],
-          velocity: [circle.velocity[0], circle.velocity[1]],
-          radius: circle.radius,
-          time: circle.time,
-        } as CircleSnapshot
-      }),
+      type: event.type === 'Cushion' ? EventType.CushionCollision : EventType.CircleCollision,
+      cushionType: (event as CushionCollision).cushion,
+      snapshots: event.circles.map(snapshotBall),
     }
 
     replay.push(replayData)
 
-    for (const circle of collision.circles) {
-      collisionFinder.recompute(circle.id)
+    for (const circle of event.circles) {
+      collisionFinder.recompute(circle.id, getSuppressedNeighbors(circle.id))
     }
   }
   return replay

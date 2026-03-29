@@ -4,7 +4,7 @@
 
 Analytical event-driven billiards collision simulation with 3D (Three.js) and 2D (Canvas) rendering.
 
-**This is NOT a real-time delta-driven simulation.** Collision times are computed exactly using closed-form equations (quadratic formula for circle-circle, linear for circle-cushion). Events are processed in strict chronological order from a priority queue. The rendering layer plays back pre-computed results — simulation and visualization are fully decoupled.
+**This is NOT a real-time delta-driven simulation.** Collision times are computed exactly using closed-form equations (quartic for ball-ball with quadratic trajectories, quadratic for ball-cushion). Events are processed in strict chronological order from a priority queue. The rendering layer plays back pre-computed results — simulation and visualization are fully decoupled.
 
 ## Commands
 
@@ -34,70 +34,39 @@ Deployment: Cloudflare Workers via `wrangler.jsonc`.
 ```
 [Web Worker]                         [Main Thread]
   Generate circles (brute-force)       ← INITIALIZE_SIMULATION
+  Load scenarios                       ← LOAD_SCENARIO
   simulate() loop                      ← REQUEST_SIMULATION_DATA
   CollisionFinder (MinHeap)
+  ContactClusterSolver
   Stream ReplayData[] ──────────────→  Buffer events (PRECALC = 10s ahead)
                                        requestAnimationFrame loop
+                                       PlaybackController (pause/step/rewind)
                                        Apply events at correct time
                                        positionAtTime(t) interpolation
                                        Three.js 3D scene + Canvas 2D overlay
-                                       Tweakpane UI controls
+                                       React debug UI (sidebar, inspector)
 ```
 
-1. **Worker** generates non-overlapping circles, runs `simulate()`, streams `ReplayData[]` back
+1. **Worker** generates non-overlapping circles (or loads a scenario), runs `simulate()`, streams `ReplayData[]` back
 2. **Main thread** buffers events, plays back via `requestAnimationFrame`, requests more data when buffer drops below 10 seconds
-3. **Between events**, circle positions are computed via `positionAtTime(t)` — this is exact (constant velocity between collisions), not an approximation
+3. **Between events**, ball positions are computed via polynomial trajectory evaluation — this is exact (quadratic motion between events), not an approximation
 
 ## Key Design Decisions
 
-- **Absolute time per circle**: Each `Circle` tracks its own `time` field. `advanceTime(t)` computes position relative to that time, then updates it. This avoids cumulative floating-point drift. See `circle.ts:advanceTime()` and `simulation.ts` lines 55-58.
-- **Boundary snapping**: On cushion collision, position is forced to `radius` from the wall to prevent floating-point escape (`simulation.ts` lines 72-87).
-- **Relative-frame collision detection**: Circle-circle detection treats one circle as stationary, uses relative position/velocity to solve the quadratic. Both circles are projected to the same reference time first (`collision.ts` lines 86-89).
-- **Overlap guard**: If circles already overlap (`distance < r1 + r2`), collision detection returns `undefined` to prevent re-detecting the same collision (`collision.ts` line 111).
-- **MinHeap priority queue**: Collisions are stored in an array-backed binary min-heap sorted by `(time, seq)`. The `seq` tiebreaker ensures deterministic ordering when multiple events share the same time (common: symmetric quadratic gives identical times for both circles).
-- **Epoch-based lazy invalidation**: Instead of eagerly removing stale events from the heap, each `Circle` has an `epoch` counter. Events record the epoch of each involved circle at creation time. When a collision fires, involved circles' epochs are incremented. Stale events (epoch mismatch) are skipped in `pop()` at O(1) cost, avoiding expensive removals.
-
-## Project Structure
-
-```
-src/
-├── index.ts                         # Entry point, animation loop, worker management
-├── benchmark.ts                     # Performance benchmarking (not wired to npm scripts)
-└── lib/
-    ├── circle.ts                    # Circle class with absolute time tracking and epoch counter
-    ├── collision.ts                 # CollisionFinder, getCushionCollision, getCircleCollisionTime
-    ├── simulation.ts                # simulate() — core event-driven engine
-    ├── simulation.worker.ts         # Web Worker: circle generation + simulation
-    ├── config.ts                    # SimulationConfig interface + defaults
-    ├── ui.ts                        # Tweakpane UI controls
-    ├── vector2d.ts                  # Vector2D = [number, number]
-    ├── string-to-rgb.ts             # Deterministic ID → color mapping
-    ├── worker-request.ts            # Worker request message types
-    ├── worker-response.ts           # Worker response message types
-    ├── renderers/
-    │   ├── renderer.ts              # Base renderer class
-    │   ├── circle-renderer.ts       # Ball circles with collision indicators
-    │   ├── tail-renderer.ts         # Motion trails
-    │   ├── collision-renderer.ts    # Next collision visualization
-    │   └── collision-preview-renderer.ts  # Future collision previews
-    ├── scene/
-    │   └── simulation-scene.ts      # Three.js 3D scene, lights, camera
-    └── __tests__/
-        ├── circle.test.ts           # Circle class unit tests
-        ├── collision.test.ts        # Collision detection unit tests
-        ├── simulation.test.ts       # Simulation integration tests (overlap, bounds, correctness)
-        └── spatial-grid.test.ts     # Spatial grid unit tests
-```
-
-## Testing
-
-Tests are in `src/lib/__tests__/` using Vitest with globals enabled. Run with `npm test`.
-
-Current coverage: `Circle` class (position, velocity, time advancement), collision detection (cushion collisions, circle-circle collision times), and simulation integration tests (velocity swap correctness, no-overlap invariant at collision events, table bounds enforcement, monotonic time, 150-circle stress test).
+- **Absolute time per ball**: Each `Ball` tracks its own `time` field. `advanceTime(t)` evaluates the trajectory polynomial relative to that time, then updates it. This avoids cumulative floating-point drift.
+- **Epoch-based lazy invalidation**: Instead of eagerly removing stale events from the heap, each `Ball` has an `epoch` counter. Events record the epoch at creation. Stale events (epoch mismatch) are skipped at O(1) cost in `pop()`.
+- **Quartic collision detection**: With quadratic trajectories (friction), distance² between two balls is a degree-4 polynomial. The detector solves D'(t) = 0 (cubic via Cardano) for critical points, then bisects (40 iterations) to find exact zero crossings.
+- **Overlap guard**: If balls already overlap (D(0) ≤ 0) and are separating, detection returns `undefined`. If approaching, it returns an immediate collision.
+- **Boundary snapping**: On cushion collision, position is forced to `radius` from the wall to prevent floating-point escape.
+- **Energy quiescence**: Balls with speed ≤ 2 mm/s snap directly to Stationary, skipping the Sliding→Rolling→Stationary chain. Eliminates thousands of events in dense clusters.
+- **Spatial grid**: Broadphase optimization. 2D grid with 3×3 cell neighborhood lookup. Also predicts cell-crossing times via quadratic solve, scheduled as events.
+- **Scenario physics mapping**: The worker maps `physics: 'zero-friction'` to Simple2D profile + zeroFrictionConfig, `'simple2d'` to Simple2D + default config, and `'pool'` to Pool profile + default config.
 
 ## Known Gotchas
 
-- **Stale event accumulation**: Epoch-based invalidation leaves stale events in the min-heap until they are naturally popped. The heap is larger than with eager removal, but stale events drain at the rate they are created (each is popped exactly once). Not a memory leak, but the heap size at any instant is proportional to total events created since the last drain, not just active predictions.
-- **O(n) recomputation**: `CollisionFinder.recompute()` tests the affected circle against ALL spatial grid neighbors. Scales as O(k*n) per collision event where k = involved circles. Becomes a bottleneck at 500+ balls.
-- **Hardcoded mass**: All balls have mass 100 (`circle.ts` default, `index.ts` line 114). The collision math supports different masses but the system never varies them.
-- **Ball radius hardcoded**: 37.5mm in `simulation.worker.ts` line 16, not configurable via `SimulationConfig`.
+- **Stale event accumulation**: Epoch-based invalidation leaves stale events in the min-heap until popped. Heap size is proportional to total events created, not just active predictions. Not a memory leak — each stale event is popped exactly once.
+- **O(n) recomputation**: `CollisionFinder.recompute()` tests the affected ball against ALL spatial grid neighbors. Scales as O(k·n) per collision event where k = involved balls. Becomes a bottleneck at 500+ balls.
+- **Quartic detector precision**: The ball-ball detector can miss collisions in rare trajectories, allowing ~0.5–0.7mm inter-event overlaps. This is a detection-level limitation exposed by different energy distributions. The diagnostic threshold in tests is 0.75mm.
+- **CONTACT_TOL must cover scenario gaps**: Newton's cradle and other chain scenarios use tiny gaps (0.5μm) between balls. `CONTACT_TOL` (0.001mm) must be larger than these gaps so the cluster solver discovers the full chain via BFS.
+- **Angular velocity preserved through collisions**: The cluster solver modifies linear velocity but not angular velocity. After collision, retained spin causes friction to accelerate/decelerate the ball (follow-through effect). This is physically correct for pool but means Newton's cradle only works properly with zero-friction physics.
+- **Ball radius from config**: Ball radius comes from `physicsConfig.defaultBallParams.radius` (37.5mm), not separately configurable per scenario.

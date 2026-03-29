@@ -4,6 +4,11 @@ import Circle from '../circle'
 import stringToRGB from '../string-to-rgb'
 import { SimulationConfig } from '../config'
 
+export interface CameraState {
+  position: [number, number, number]
+  target: [number, number, number]
+}
+
 class Ball {
   private radius: number
   private sphereMaterial: THREE.MeshStandardMaterial
@@ -33,10 +38,10 @@ class Ball {
   }
 
   renderAtTime(progress: number) {
-    const [x, y] = this.circle.positionAtTime(progress)
-    this.sphere.position.x = x - this.tableWidth / 2
-    this.sphere.position.y = this.radius
-    this.sphere.position.z = y - this.tableHeight / 2
+    const pos = this.circle.position3DAtTime(progress)
+    this.sphere.position.x = pos[0] - this.tableWidth / 2
+    this.sphere.position.y = this.radius + Math.max(0, pos[2])
+    this.sphere.position.z = pos[1] - this.tableHeight / 2
   }
 
   updateRoughness(roughness: number) {
@@ -127,6 +132,19 @@ export default class SimulationScene {
     controls.enableDamping = false
 
     return { controls, spotLight1, spotLight2 }
+  }
+
+  getCameraState(): CameraState {
+    return {
+      position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
+      target: [this.controls.target.x, this.controls.target.y, this.controls.target.z],
+    }
+  }
+
+  restoreCamera(state: CameraState) {
+    this.camera.position.set(state.position[0], state.position[1], state.position[2])
+    this.controls.target.set(state.target[0], state.target[1], state.target[2])
+    this.controls.update()
   }
 
   updateFromConfig(config: SimulationConfig) {

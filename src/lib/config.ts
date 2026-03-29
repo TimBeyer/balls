@@ -1,8 +1,22 @@
+export type PhysicsProfileName = 'pool' | 'simple2d'
+
+export interface PhysicsOverrides {
+  gravity?: number // mm/s² (default 9810)
+  muSliding?: number // sliding friction (default 0.2)
+  muRolling?: number // rolling friction (default 0.01)
+  muSpinning?: number // spinning friction (default 0.044)
+  eBallBall?: number // ball-ball restitution (default 0.93)
+  eRestitution?: number // cushion restitution (default 0.85)
+}
+
 export interface SimulationConfig {
   // Simulation (restart required)
   numBalls: number
   tableWidth: number
   tableHeight: number
+  physicsProfile: PhysicsProfileName
+  scenarioName: string // '' = random, otherwise a scenario name from scenarios.ts
+  physicsOverrides: PhysicsOverrides
 
   // 3D Rendering
   shadowsEnabled: boolean
@@ -36,12 +50,23 @@ export interface SimulationConfig {
 
   // Simulation speed
   simulationSpeed: number
+
+  // Debug Visualization
+  showFutureTrails: boolean
+  futureTrailEventsPerBall: number
+  futureTrailInterpolationSteps: number
+  showPhantomBalls: boolean
+  phantomBallOpacity: number
+  showBallInspector: boolean
 }
 
 export const defaultConfig: SimulationConfig = {
   numBalls: 150,
   tableWidth: 2840,
   tableHeight: 1420,
+  physicsProfile: 'pool',
+  scenarioName: '',
+  physicsOverrides: {},
 
   shadowsEnabled: true,
   shadowMapSize: 1024,
@@ -68,6 +93,13 @@ export const defaultConfig: SimulationConfig = {
   showStats: true,
 
   simulationSpeed: 1.0,
+
+  showFutureTrails: false,
+  futureTrailEventsPerBall: 5,
+  futureTrailInterpolationSteps: 10,
+  showPhantomBalls: true,
+  phantomBallOpacity: 0.3,
+  showBallInspector: false,
 }
 
 export function createConfig(): SimulationConfig {

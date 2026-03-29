@@ -1,4 +1,5 @@
-import Circle from './circle'
+import type Ball from './ball'
+import { solveQuadratic } from './polynomial-solver'
 
 export interface CellTransition {
   time: number
@@ -9,10 +10,10 @@ export class SpatialGrid {
   private cols: number
   private rows: number
   private cellSize: number
-  private cells: Circle[][]
+  private cells: Ball[][]
   private circleToCell: Map<string, number> = new Map()
   /** Reusable buffer for getNearbyCircles to avoid allocating a new array per call */
-  private neighborBuf: Circle[] = []
+  private neighborBuf: Ball[] = []
 
   constructor(tableWidth: number, tableHeight: number, cellSize: number) {
     this.cellSize = cellSize
@@ -27,13 +28,13 @@ export class SpatialGrid {
     return row * this.cols + col
   }
 
-  addCircle(circle: Circle): void {
+  addCircle(circle: Ball): void {
     const cell = this.cellFor(circle.position[0], circle.position[1])
     this.cells[cell].push(circle)
     this.circleToCell.set(circle.id, cell)
   }
 
-  removeCircle(circle: Circle): void {
+  removeCircle(circle: Ball): void {
     const cell = this.circleToCell.get(circle.id)
     if (cell === undefined) return
     const arr = this.cells[cell]
@@ -42,7 +43,7 @@ export class SpatialGrid {
     this.circleToCell.delete(circle.id)
   }
 
-  moveCircle(circle: Circle, toCell: number): void {
+  moveCircle(circle: Ball, toCell: number): void {
     const fromCell = this.circleToCell.get(circle.id)
     if (fromCell !== undefined) {
       const arr = this.cells[fromCell]
@@ -53,11 +54,11 @@ export class SpatialGrid {
     this.circleToCell.set(circle.id, toCell)
   }
 
-  getCellOf(circle: Circle): number {
+  getCellOf(circle: Ball): number {
     return this.circleToCell.get(circle.id)!
   }
 
-  getNearbyCircles(circle: Circle): Circle[] {
+  getNearbyCircles(circle: Ball): Ball[] {
     const cell = this.circleToCell.get(circle.id)!
     const col = cell % this.cols
     const row = Math.floor(cell / this.cols)
@@ -79,37 +80,61 @@ export class SpatialGrid {
     return result
   }
 
-  getNextCellTransition(circle: Circle): CellTransition | null {
-    const x = circle.position[0]
-    const y = circle.position[1]
-    const vx = circle.velocity[0]
-    const vy = circle.velocity[1]
+  /**
+   * Compute when a ball crosses into an adjacent spatial grid cell.
+   * With quadratic trajectories: x(t) = a*t^2 + b*t + c, solve for boundary crossing.
+   */
+  getNextCellTransition(circle: Ball): CellTransition | null {
+    const traj = circle.trajectory
     const cell = this.circleToCell.get(circle.id)!
     const col = cell % this.cols
     const row = Math.floor(cell / this.cols)
 
-    // Inline boundary crossing to avoid allocating arrays and objects per call.
     let minDt = Infinity
     let toCol = col
     let toRow = row
 
-    if (vx > 0 && col + 1 < this.cols) {
-      const dt = (this.cellSize * (col + 1) - x) / vx
-      if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col + 1; toRow = row }
-    } else if (vx < 0 && col > 0) {
-      const dt = (this.cellSize * col - x) / vx
-      if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col - 1; toRow = row }
+    // Check x-axis boundaries
+    const checkXBoundary = (boundary: number, newCol: number) => {
+      // Solve a_x * t^2 + b_x * t + (c_x - boundary) = 0
+      const roots = solveQuadratic(traj.a[0], traj.b[0], traj.c[0] - boundary)
+      for (const t of roots) {
+        if (t >= 0 && t < minDt) {
+          // Verify velocity at time t points toward the new cell
+          const vx = 2 * traj.a[0] * t + traj.b[0]
+          if ((newCol > col && vx > 0) || (newCol < col && vx < 0)) {
+            minDt = t
+            toCol = newCol
+            toRow = row
+          }
+        }
+      }
     }
 
-    if (vy > 0 && row + 1 < this.rows) {
-      const dt = (this.cellSize * (row + 1) - y) / vy
-      if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col; toRow = row + 1 }
-    } else if (vy < 0 && row > 0) {
-      const dt = (this.cellSize * row - y) / vy
-      if (dt > Number.EPSILON && dt < minDt) { minDt = dt; toCol = col; toRow = row - 1 }
+    if (col + 1 < this.cols) checkXBoundary(this.cellSize * (col + 1), col + 1)
+    if (col > 0) checkXBoundary(this.cellSize * col, col - 1)
+
+    // Check y-axis boundaries
+    const checkYBoundary = (boundary: number, newRow: number) => {
+      const roots = solveQuadratic(traj.a[1], traj.b[1], traj.c[1] - boundary)
+      for (const t of roots) {
+        if (t >= 0 && t < minDt) {
+          const vy = 2 * traj.a[1] * t + traj.b[1]
+          if ((newRow > row && vy > 0) || (newRow < row && vy < 0)) {
+            minDt = t
+            toCol = col
+            toRow = newRow
+          }
+        }
+      }
     }
+
+    if (row + 1 < this.rows) checkYBoundary(this.cellSize * (row + 1), row + 1)
+    if (row > 0) checkYBoundary(this.cellSize * row, row - 1)
 
     if (minDt === Infinity) return null
-    return { time: circle.time + minDt, toCell: toRow * this.cols + toCol }
+    // Clamp to a tiny positive dt to avoid zero-time events in the priority queue
+    const clampedDt = Math.max(minDt, 1e-12)
+    return { time: circle.time + clampedDt, toCell: toRow * this.cols + toCol }
   }
 }
