@@ -33,7 +33,7 @@ const BRITISH_COLORS = ['#F5F5F0', '#CC0000', '#1A1A1A', '#FFD700'] // cue, red,
 
 const SNOOKER_COLOR_ORDER = ['#F5F5F0', '#CC0000', '#FFD700', '#009944', '#8B4513', '#003DA5', '#FF69B4', '#1A1A1A']
 
-const TEX_SIZE = 512
+const TEX_SIZE = 2048
 const textureCache = new Map<string, THREE.CanvasTexture>()
 
 interface RGB {
